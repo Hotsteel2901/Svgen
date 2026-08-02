@@ -77,7 +77,7 @@
   <!-- Stage -->
   <main id="stage-wrap">
     <canvas id="stage"></canvas>
-    <div class="hint-pill">Draw with the tools on the left · click a shape, then use the timeline below to animate it</div>
+    <div class="hint-pill" id="hint-pill">Draw with the tools on the left · click a shape, then use the timeline below to animate it</div>
   </main>
 
   <!-- Right panel -->
@@ -102,6 +102,29 @@
 
 <input type="file" id="file-open" accept=".json,application/json" hidden>
 <input type="file" id="file-svg" accept=".svg,image/svg+xml" hidden>
+
+<div id="toasts" aria-live="polite"></div>
+
+<div id="help-modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <b>Keyboard Shortcuts</b>
+      <button class="tb-btn icon" id="help-close">✕</button>
+    </div>
+    <table class="shortcuts">
+      <tr><td><kbd>V</kbd></td><td>Select / move</td><td><kbd>P</kbd></td><td>Freehand pen</td></tr>
+      <tr><td><kbd>B</kbd></td><td>Smooth path</td><td><kbd>T</kbd></td><td>Text</td></tr>
+      <tr><td><kbd>R</kbd></td><td>Rectangle</td><td><kbd>O</kbd></td><td>Ellipse</td></tr>
+      <tr><td><kbd>L</kbd></td><td>Line</td><td><kbd>A</kbd></td><td>Arrow</td></tr>
+      <tr><td><kbd>G</kbd></td><td>Polygon</td><td><kbd>S</kbd></td><td>Star</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo</td><td><kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Redo</td></tr>
+      <tr><td><kbd>K</kbd></td><td>Toggle keyframe at playhead</td><td><kbd>Space</kbd></td><td>Hand / pan</td></tr>
+      <tr><td><kbd>Delete</kbd></td><td>Delete selection</td><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save scene</td></tr>
+      <tr><td><kbd>Shift</kbd></td><td>Constrain proportions / angles</td><td><kbd>?</kbd></td><td>Toggle this panel</td></tr>
+    </table>
+    <div class="modal-foot">Drag with the middle mouse button to pan · wheel to zoom · Ctrl+wheel to zoom at cursor</div>
+  </div>
+</div>
 
 <script src="js/store.js"></script>
 <script src="js/draw.js"></script>

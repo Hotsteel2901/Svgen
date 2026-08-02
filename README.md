@@ -141,13 +141,10 @@ curl -X POST http://localhost:8090/api/export \
 4. Frames are rasterized — Rust engine, headless browser, or the built-in rasterizer — and
    piped to ffmpeg for `mp4`/`webm`, or encoded with the pure-Python GIF writer.
 
-## Notes
+## License
 
-- Ports: the server binds `127.0.0.1:8090` by default.
-- The Rust and Python raster engines are verified to produce byte-identical output for the
-  supported SVG subset (flats, gradients, strokes, transforms, opacity, text).
-- Pure-raster text uses a built-in 5×7 font; for real font rendering run with a browser
-  engine available (automatic).
+[MIT](LICENSE) — fetched from the canonical [Open Source Initiative](https://opensource.org/license/mit)
+/ [SPDX MIT](https://spdx.org/licenses/MIT.html) text. Copyright (c) 2026 SVGen Studio contributors.
 
 ## Front-end features
 
@@ -161,6 +158,10 @@ curl -X POST http://localhost:8090/api/export \
 - **Export** — format, size, background, duration, fps and render-engine controls (Auto /
   Chrome / Firefox / Rust / Python); live backend capability readout; downloads the finished file.
   Also supports SVG import and scene save/load (`.svgen.json`).
+- **Resilience & UX** — live backend health polling with automatic reconnect (export button is
+  disabled while offline, toasts on reconnect), auto-save of the scene to `localStorage`
+  (restored on reload), toast notifications, a `?` keyboard-shortcuts panel, live zoom readout,
+  and an empty-canvas hint.
 
 ---
 

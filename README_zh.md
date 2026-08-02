@@ -36,6 +36,8 @@
 - **完整绘图工具**：选择/移动、自由笔、平滑路径、文字、矩形、圆角矩形、椭圆、直线、箭头、多边形、星形
 - **动画编辑**：底部时间轴、关键帧（X / Y / 旋转 / 缩放 / 透明度）、播放/循环、洋葱皮、逐帧拖动
 - **图层系统**：排序、重命名、复制、删除、显隐、锁定
+- **体验与稳定性**：后端断线自动检测与重连（离线时导出按钮自动禁用、恢复后弹提示）、
+  场景**自动保存**到浏览器（刷新不丢）、Toast 通知、`?` 快捷键面板、实时缩放显示、空画布引导
 - **多种导出格式**：SVG / PNG / JPG / BMP / WebP / GIF / MP4 / WebM
 - **多渲染引擎**：Rust（原生，最快）→ Chrome/Edge/Firefox（真实字体、CJK 中文，最高保真）→ 纯 Python（零依赖兜底）
 - **Firefox / Gecko 兼容**：前端基于标准 API（Canvas2D、Pointer Events、fetch），任何现代浏览器均可使用；后端 headless 渲染自动识别并支持 Firefox，导出中文时请选浏览器引擎（Gecko 无法输出透明背景 PNG，透明导出会自动回退 Rust）
@@ -288,7 +290,13 @@ python svgen.py build-rs     # 需要 cargo
 注意 Gecko 的 headless 截图不支持透明背景，透明导出时会自动回退到 Rust 引擎。
 
 **Q：前端连不上后端？**
-确认 `python svgen.py serve` 正在运行、端口未占用；导出面板会显示 “Backend offline”。
+确认 `python svgen.py serve` 正在运行、端口未占用。前端每 8 秒自动检测后端状态：离线时顶部指示点变红、
+导出按钮自动禁用，后端恢复后自动重连并弹出提示。
+
+## 许可
+
+[MIT](LICENSE) —— 取自权威 [Open Source Initiative](https://opensource.org/license/mit) /
+[SPDX MIT](https://spdx.org/licenses/MIT.html) 官方文本。Copyright (c) 2026 SVGen Studio contributors。
 
 ---
 

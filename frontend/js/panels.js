@@ -241,7 +241,16 @@ class Panels {
     fmtSelect.addEventListener("change", updateVideoOpts);
     updateVideoOpts();
 
-    el.querySelector("#exp-go").addEventListener("click", () => this.doExport());
+    const goBtn = el.querySelector("#exp-go");
+    const syncOnline = (online) => {
+      const offline = online === false;
+      goBtn.disabled = offline;
+      goBtn.textContent = offline ? "Backend offline" : "Export & Download";
+    };
+    syncOnline(app.conn.online);
+    app.conn.onChange((online) => syncOnline(online));
+
+    goBtn.addEventListener("click", () => this.doExport());
     el.querySelector("#exp-svg").addEventListener("click", () => {
       const svg = sceneToSVG(scene);
       downloadBlob(new Blob([svg], { type: "image/svg+xml" }), "artwork.svg");
@@ -280,12 +289,14 @@ class Panels {
     const progress = document.getElementById("exp-progress");
     progress.classList.remove("hidden");
     progress.textContent = "Validating…";
+    const goBtn = document.getElementById("exp-go");
+    if (goBtn) goBtn.disabled = true;
     app.status(`Exporting ${fmt.toUpperCase()} (${width}×${height})…`);
     try {
       const val = await API.validate(svg);
       if (!val.ok) {
         progress.textContent = "SVG invalid: " + (val.error || "");
-        this.app.status("SVG validation failed");
+        app.toast("SVG validation failed", "err");
         return;
       }
       const isVideo = ["mp4", "webm", "gif"].includes(fmt);
@@ -300,10 +311,14 @@ class Panels {
       });
       await downloadBlob(res.blob, res.filename);
       progress.textContent = `Done — ${res.filename}`;
+      app.toast(`Exported ${res.filename}`, "ok");
       app.status(`Exported ${res.filename}`);
     } catch (err) {
       progress.textContent = "Export failed: " + err.message;
+      app.toast("Export failed: " + err.message, "err");
       app.status("Export failed");
+    } finally {
+      if (goBtn) goBtn.disabled = app.conn.online === false;
     }
   }
 }

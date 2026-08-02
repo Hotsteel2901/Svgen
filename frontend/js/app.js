@@ -25,7 +25,8 @@ class App {
     this.historyIdx = -1;
     this.rafId = null;
     this.lastFrame = 0;
-    this.demoLoaded = false;
+    this.conn = Conn;
+    this._saveT = null;
 
     this.canvas = document.getElementById("stage");
     this.ctx = this.canvas.getContext("2d");
@@ -37,13 +38,19 @@ class App {
     this.bindToolbar();
     this.bindKeyboard();
     this.bindViewport();
+    this.bindHelpModal();
+
+    this.conn.onChange((online, first) => this.onConnectionChange(online, first));
+    this.conn.start();
 
     this.pushHistory();
     this.timeline.build();
     this.panels.render();
     this.requestRender();
-    this.setupDemo();
-    this.loadPreferences();
+    if (!this.restoreAutosave()) {
+      this.setupDemo();
+    }
+    this.updateHud();
   }
 
   // ---- toolbar ----------------------------------------------------------
@@ -140,6 +147,8 @@ class App {
       }
     }, { passive: false });
 
+    wrap.addEventListener("contextmenu", (e) => e.preventDefault());
+
     // pointer events
     const down = (e) => {
       this.canvas.setPointerCapture(e.pointerId);
@@ -151,11 +160,61 @@ class App {
     this.canvas.addEventListener("pointermove", move);
     this.canvas.addEventListener("pointerup", up);
     this.canvas.addEventListener("pointercancel", up);
+    this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+
+  bindHelpModal() {
+    const modal = document.getElementById("help-modal");
+    const toggle = (show) => modal.classList.toggle("hidden", !show);
+    document.getElementById("help-close").addEventListener("click", () => toggle(false));
+    modal.addEventListener("click", (e) => { if (e.target === modal) toggle(false); });
+    this._toggleHelp = () => {
+      const hidden = modal.classList.contains("hidden");
+      toggle(hidden);
+      return hidden;
+    };
   }
 
   setZoom(z) {
     this.view.zoom = clamp(z, 0.05, 32);
+    this.updateZoomLabel();
     this.requestRender();
+  }
+
+  updateZoomLabel() {
+    const el = document.getElementById("zoom-label");
+    if (el) el.textContent = Math.round(this.view.zoom * 100) + "%";
+  }
+
+  // ---- toast notifications -------------------------------------------------
+
+  toast(msg, type = "info", duration = 3200) {
+    const wrap = document.getElementById("toasts");
+    if (!wrap) return;
+    const t = document.createElement("div");
+    t.className = "toast " + type;
+    t.innerHTML = `<span class="t-dot"></span><span>${escXML(msg)}</span>`;
+    wrap.appendChild(t);
+    setTimeout(() => {
+      t.style.transition = "opacity .3s";
+      t.style.opacity = "0";
+      setTimeout(() => t.remove(), 320);
+    }, duration);
+  }
+
+  // ---- backend connection ---------------------------------------------------
+
+  onConnectionChange(online, first) {
+    const pill = document.getElementById("engine-pill");
+    if (pill) {
+      pill.textContent = online ? "● backend online" : "○ backend offline";
+      pill.classList.toggle("ok", online);
+      pill.classList.toggle("bad", !online);
+    }
+    this.panels.render(); // export controls reflect online state
+    if (!first) {
+      this.toast(online ? "Backend reconnected" : "Backend connection lost — start `python svgen.py serve`", online ? "ok" : "err");
+    }
   }
 
   toggleGrid() {
@@ -193,6 +252,64 @@ class App {
     ctx.restore();
     this.timeline.positionPlayhead();
     this.timeline.refresh();
+    this.updateHud();
+  }
+
+  updateHud() {
+    const hint = document.getElementById("hint-pill");
+    if (hint) hint.classList.toggle("hidden", this.scene.layers.length > 0);
+    const z = document.getElementById("zoom-label");
+    if (z && z.textContent !== Math.round(this.view.zoom * 100) + "%") this.updateZoomLabel();
+    const sel = this.scene.layers.find((l) => l.id === this.scene.selectedId);
+    const sb = document.getElementById("status-text");
+    if (sb) {
+      const count = this.scene.layers.length;
+      const name = sel ? ` · ${sel.name}` : "";
+      if (this._statusMsg) {
+        sb.textContent = this._statusMsg + ` — ${count} layer${count === 1 ? "" : "s"}${name}`;
+      } else {
+        sb.textContent = `${count} layer${count === 1 ? "" : "s"}${name}`;
+      }
+    }
+  }
+
+  status(msg) {
+    this._statusMsg = msg;
+    const el = document.getElementById("status-text");
+    if (el && !msg) el.textContent = "";
+    this.updateHud();
+  }
+
+  // ---- autosave -------------------------------------------------------------
+
+  _autosaveKey() { return "svgen-scene-v1"; }
+
+  autosave() {
+    if (this._saveT) clearTimeout(this._saveT);
+    this._saveT = setTimeout(() => {
+      try {
+        localStorage.setItem(this._autosaveKey(), exportJSON(this.scene));
+      } catch (e) { /* storage full / unavailable — ignore */ }
+    }, 600);
+  }
+
+  restoreAutosave() {
+    try {
+      const raw = localStorage.getItem(this._autosaveKey());
+      if (!raw) return false;
+      const saved = importJSON(raw);
+      if (!saved || !Array.isArray(saved.layers)) return false;
+      this.scene = saved;
+      this.pushHistory();
+      this.status("Restored autosaved scene");
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  clearAutosave() {
+    try { localStorage.removeItem(this._autosaveKey()); } catch (e) {}
   }
 
   drawGrid() {
@@ -258,6 +375,7 @@ class App {
     this.history.push(this.snapshot());
     if (this.history.length > 200) { this.history.shift(); this.historyIdx--; }
     this.updateHistoryButtons();
+    this.autosave();
   }
 
   undo() {
@@ -321,6 +439,7 @@ class App {
       if (tools[k]) { this.setTool(tools[k]); this.status(`Tool: ${tools[k]}`); }
       if (k === "delete" || k === "backspace") this.deleteSelected();
       if (k === "k") this.timeline.toggleKeyAtPlayhead();
+      if (k === "?" || (e.key === "F1")) this._toggleHelp();
       if (k === " ") e.preventDefault();
     });
     window.addEventListener("keyup", (e) => {
@@ -345,9 +464,12 @@ class App {
     if (this.scene.layers.length && !confirm("Start a new canvas? Current work will be lost.")) return;
     this.scene = createDefaultScene();
     this.pushHistory();
+    this.clearAutosave();
     this.timeline.rebuild();
     this.panels.render();
     this.requestRender();
+    this.status("");
+    this.toast("New canvas created", "info");
   }
 
   saveScene() {
@@ -441,9 +563,7 @@ class App {
   }
 
   loadPreferences() {
-    API.health().then((h) => {
-      if (h && h.ok) this.status("Backend connected · " + h.service);
-    }).catch(() => this.status("Backend offline — export will not work"));
+    // connection state is managed by Conn (health polling)
   }
 }
 
