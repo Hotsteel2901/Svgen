@@ -97,7 +97,11 @@
   <!-- Status bar -->
   <footer id="statusbar">
     <span id="status-text" data-i18n="status.ready">Ready</span>
-    <span class="sb-right">⌖ select · P pen · R rect · K keyframe · Space pan</span>
+    <span class="sb-right">
+      <span id="font-notice" data-i18n="font.noticeShort">Fonts: HarmonyOS Sans SC</span>
+      <span class="sb-sep">·</span>
+      <span>⌖ select · P pen · R rect · K keyframe · Space pan</span>
+    </span>
   </footer>
 </div>
 
@@ -123,7 +127,12 @@
       <tr><td><kbd>Delete</kbd></td><td>Delete selection</td><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save scene</td></tr>
       <tr><td><kbd>Shift</kbd></td><td>Constrain proportions / angles</td><td><kbd>?</kbd></td><td>Toggle this panel</td></tr>
     </table>
-    <div class="modal-foot">Drag with the middle mouse button to pan · wheel to zoom · Ctrl+wheel to zoom at cursor</div>
+    <div class="modal-foot" data-i18n="help.foot">Drag with the middle mouse button to pan · wheel to zoom · Ctrl+wheel to zoom at cursor</div>
+    <div class="about">
+      <div class="about-head"></div>
+      <div class="about-text"></div>
+      <div class="about-tm"></div>
+    </div>
   </div>
 </div>
 

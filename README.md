@@ -164,10 +164,32 @@ curl -X POST http://localhost:8090/api/export \
   and an empty-canvas hint.
 - **i18n** — the UI ships in **English and 中文** (auto-detects the browser language; toggle in
   the top bar). Text rendered on canvas and in exports uses the **embedded HarmonyOS Sans SC**
-  font, bundled as the **original, unmodified TTF files** under `frontend/fonts/` — exactly as
-  permitted by the HarmonyOS Sans Fonts License Agreement (copy/embed/bundle/redistribute
-  unmodified copies with software; no format conversion or modification).
-  See `frontend/fonts/Huawei_HarmonyOS_Sans_License.txt`.
+  font, bundled as the **original, unmodified TTF files** under `frontend/fonts/`.
+  See the [font compliance](#harmonyos-sans-font-compliance) section below.
+
+### HarmonyOS Sans Font Compliance
+
+The HarmonyOS Sans Fonts License Agreement (© 2021 Huawei Device Co., Ltd., full text in
+`frontend/fonts/Huawei_HarmonyOS_Sans_License.txt`) grants a royalty-free, worldwide license to
+*use, copy, merge, embed, bundle, redistribute and/or sell **unmodified** copies … with any software
+except for fonts software*, subject to conditions we satisfy as follows:
+
+| Agreement condition | How it is met |
+| --- | --- |
+| **Prominent notice that HarmonyOS Sans Fonts are used** | Persistent notice in the app footer; full notice + license reference in the About panel (`?` / F1); `NOTICE` file in the repo; section in both READMEs. |
+| **No modifications to the fonts** | The bundled TTFs are the official files, byte-for-byte (SHA-256 verified, see below). No conversion (no WOFF2), no subsetting, no edits. |
+| **No stand-alone redistribution / sale** | Fonts are bundled only inside this software; never sold or distributed standalone. |
+| **Retain the copyright notice and the Agreement** | The verbatim, complete Agreement (SHA-256-verified against the official text) ships beside the fonts in `frontend/fonts/`; the © 2021 Huawei copyright notice is retained. |
+
+Bundled font checksums (SHA-256, match the officially distributed files):
+
+```
+frontend/fonts/HarmonyOS_SansSC_Regular.ttf   984CF609545ACEE8EF060780FB70FC3099B058C0553416331B6E863FDF7C26FA
+frontend/fonts/HarmonyOS_SansSC_Bold.ttf      C215D8AB1CB6709FEC2E063F8213E9AF86D7587D345B56325E36B67D6B947D98
+frontend/fonts/Huawei_HarmonyOS_Sans_License.txt  (identical to the official Agreement text)
+```
+
+*HarmonyOS is a trademark of Huawei Device Co., Ltd.*
 
 ---
 

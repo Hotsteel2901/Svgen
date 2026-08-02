@@ -68,6 +68,11 @@ const I18N = {
     "help.title": "Keyboard Shortcuts",
     "help.close": "Close",
     "help.foot": "Drag with the middle mouse button to pan · wheel to zoom · Ctrl+wheel to zoom at cursor",
+    // font notice (HarmonyOS Sans Fonts License Agreement requirement)
+    "about.title": "About",
+    "font.notice": "This software uses HarmonyOS Sans Fonts, licensed under the HarmonyOS Sans Fonts License Agreement (Huawei Device Co., Ltd., © 2021). The fonts are bundled unmodified under frontend/fonts/ — see Huawei_HarmonyOS_Sans_License.txt.",
+    "font.noticeShort": "Fonts: HarmonyOS Sans SC © 2021 Huawei Device Co., Ltd.",
+    "font.trademark": "HarmonyOS is a trademark of Huawei Device Co., Ltd.",
     // misc
     "hint": "Draw with the tools on the left · click a shape, then use the timeline below to animate it",
     "lang": "中文",
@@ -145,6 +150,11 @@ const I18N = {
     "help.title": "键盘快捷键",
     "help.close": "关闭",
     "help.foot": "按住鼠标中键拖拽平移 · 滚轮缩放 · Ctrl+滚轮以光标为中心缩放",
+    // font notice (HarmonyOS Sans Fonts License Agreement requirement)
+    "about.title": "关于",
+    "font.notice": "本软件使用了 HarmonyOS Sans 字体，依据《HarmonyOS Sans 字体许可协议》授权（华为终端有限公司，© 2021）。字体以未修改形式随附于 frontend/fonts/ 目录，完整协议见 Huawei_HarmonyOS_Sans_License.txt。",
+    "font.noticeShort": "字体：HarmonyOS Sans SC © 2021 华为终端有限公司",
+    "font.trademark": "HarmonyOS 是华为终端有限公司的商标。",
     // misc
     "hint": "用左侧工具绘图 · 点击形状，再用下方时间轴制作动画",
     "lang": "English",

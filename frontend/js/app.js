@@ -168,7 +168,10 @@ class App {
 
   bindHelpModal() {
     const modal = document.getElementById("help-modal");
-    const toggle = (show) => modal.classList.toggle("hidden", !show);
+    const toggle = (show) => {
+      modal.classList.toggle("hidden", !show);
+      if (show) this.fillAbout();
+    };
     document.getElementById("help-close").addEventListener("click", () => toggle(false));
     modal.addEventListener("click", (e) => { if (e.target === modal) toggle(false); });
     this._toggleHelp = () => {
@@ -176,6 +179,14 @@ class App {
       toggle(hidden);
       return hidden;
     };
+  }
+
+  fillAbout() {
+    const modal = document.getElementById("help-modal");
+    if (!modal) return;
+    modal.querySelector(".about-head").textContent = t("about.title") + " — SVGen Studio";
+    modal.querySelector(".about-text").textContent = t("font.notice");
+    modal.querySelector(".about-tm").textContent = t("font.trademark");
   }
 
   setZoom(z) {

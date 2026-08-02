@@ -1,0 +1,21 @@
+NOTICE
+======
+
+This software uses the HarmonyOS Sans Fonts.
+
+  Copyright (c) 2021 Huawei Device Co., Ltd.
+  HarmonyOS Sans Fonts are licensed under the HarmonyOS Sans Fonts License
+  Agreement. The complete, unmodified agreement is included verbatim at:
+
+      frontend/fonts/Huawei_HarmonyOS_Sans_License.txt
+
+Compliance (per the Agreement):
+  * The bundled font files are the ORIGINAL, UNMODIFIED TTF files distributed
+    by Huawei — no format conversion, subsetting, or any other modification.
+  * The fonts are embedded/bundled only as part of this software, never
+    distributed or sold stand-alone.
+  * This prominent notice, the copyright notice above and the full Agreement
+    are retained with every copy of the fonts.
+  * SHA-256 (see README.md) match the officially distributed files.
+
+  HarmonyOS is a trademark of Huawei Device Co., Ltd.
