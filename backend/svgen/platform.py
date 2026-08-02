@@ -202,6 +202,34 @@ def find_chrome():
     return find_executable([], _CHROME_CANDIDATES.get(key, []))
 
 
+def find_firefox():
+    """Locate a Firefox / Gecko binary for headless rendering."""
+    candidates = []
+    if WINDOWS:
+        candidates += [
+            r"C:\Program Files\Mozilla Firefox\firefox.exe",
+            r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Mozilla Firefox\firefox.exe"),
+        ]
+        for pattern in (r"C:\Program Files\Mozilla Firefox\firefox.exe",
+                        r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe"):
+            for match in glob.glob(pattern):
+                if os.path.isfile(match) and match not in candidates:
+                    candidates.append(match)
+    elif MACOS:
+        candidates += [
+            "/Applications/Firefox.app/Contents/MacOS/firefox",
+            "/Applications/Firefox Developer Edition.app/Contents/MacOS/firefox",
+        ]
+    else:
+        candidates += ["/usr/bin/firefox", "/usr/bin/firefox-esr", "/snap/bin/firefox"]
+    return find_executable(["firefox", "firefox-esr"], candidates)
+
+
+def find_browsers():
+    return {"chrome": find_chrome(), "firefox": find_firefox()}
+
+
 def capabilities() -> dict:
     """Which renderers / tools are usable on this machine."""
     from . import __version__  # noqa: F401
@@ -218,10 +246,12 @@ def capabilities() -> dict:
         "ffmpeg_path": find_ffmpeg(),
         "chrome": bool(find_chrome()),
         "chrome_path": find_chrome(),
+        "firefox": bool(find_firefox()),
+        "firefox_path": find_firefox(),
         "pillow": _pillow_ok(),
         "rust": rust,
         "rust_info": rust_info,
-        "engine": "chrome" if find_chrome() else ("rust" if rust else "raster"),
+        "engine": "chrome" if find_chrome() else ("firefox" if find_firefox() else ("rust" if rust else "raster")),
     }
 
 

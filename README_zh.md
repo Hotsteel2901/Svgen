@@ -37,7 +37,8 @@
 - **动画编辑**：底部时间轴、关键帧（X / Y / 旋转 / 缩放 / 透明度）、播放/循环、洋葱皮、逐帧拖动
 - **图层系统**：排序、重命名、复制、删除、显隐、锁定
 - **多种导出格式**：SVG / PNG / JPG / BMP / WebP / GIF / MP4 / WebM
-- **多渲染引擎**：Rust（原生，最快）→ Chrome/Edge（真实字体，最高保真）→ 纯 Python（零依赖兜底）
+- **多渲染引擎**：Rust（原生，最快）→ Chrome/Edge/Firefox（真实字体、CJK 中文，最高保真）→ 纯 Python（零依赖兜底）
+- **Firefox / Gecko 兼容**：前端基于标准 API（Canvas2D、Pointer Events、fetch），任何现代浏览器均可使用；后端 headless 渲染自动识别并支持 Firefox，导出中文时请选浏览器引擎（Gecko 无法输出透明背景 PNG，透明导出会自动回退 Rust）
 - **系统自适应**：自动识别 Windows / Linux / macOS 及架构，选择对应文件系统与临时目录
 - **日志可开关**：`svgen logs on|off` 持久化，服务器运行中可 `POST /api/logs` 实时切换
 - **后端可独立使用**：完整 CLI + HTTP API，不依赖前端
@@ -51,7 +52,7 @@
 | Python | 3.9+ | 核心功能无需任何第三方库 |
 | Rust (cargo) | 可选 | 仅用于编译原生引擎（`python svgen.py build-rs`）；不装则自动回退纯 Python |
 | ffmpeg | 可选 | 仅 `mp4` / `webm` 导出需要；`gif` 为纯 Rust/Python 实现 |
-| Chrome / Edge | 可选 | 存在时自动用于最高保真渲染 |
+| Chrome / Edge / Firefox | 可选 | 存在时自动用于最高保真渲染（真实字体、中文）；都没有则用 Rust 引擎 |
 | Pillow | 可选 | 仅 `jpg` / `webp` 静态图需要 |
 
 运行 `python svgen.py info` 可查看本机各项能力是否就绪。
@@ -89,8 +90,9 @@ python svgen.py render art.svg -f gif --duration 2 --fps 12 -o out.gif
 # 从标准输入读取
 cat art.svg | python svgen.py render - -f webp -o out.webp
 
-# 指定渲染引擎（auto 自动选择；也可强制 rust / chrome / raster）
+# 指定渲染引擎（auto 自动选择；也可强制 rust / chrome / firefox / raster）
 python svgen.py render art.svg -f png --engine rust -o out.png
+python svgen.py render art.svg -f png --engine firefox -o out.png   # 用 Firefox/Gecko 渲染（真实中文）
 
 # 编译原生 Rust 引擎
 python svgen.py build-rs
@@ -152,10 +154,11 @@ curl -X POST http://127.0.0.1:8090/api/export \
 1. 设置画布宽高、背景色
 2. 选择格式（SVG / PNG / JPG / BMP / WebP / GIF / MP4 / WebM）
 3. 视频类选择时长与 FPS
-4. 选择渲染引擎（Auto / Browser / Rust / Python）
+4. 选择渲染引擎（Auto / Chrome / Firefox / Rust / Python）
 5. 点击 **Export & Download**，文件自动下载；也可单独复制/下载 SVG
 
 面板顶部会实时显示后端能力（Rust / 浏览器 / ffmpeg / Pillow 是否就绪）。
+**Firefox 用户**：界面与导出面板完全兼容；需要真实中文字体导出时选 “Browser (Firefox/Gecko)”。
 
 ---
 
@@ -277,7 +280,12 @@ python svgen.py build-rs     # 需要 cargo
 
 **Q：中文文字导出不显示？**
 纯 Rust/Python 栅格使用内置 5×7 点阵字体（仅 ASCII）；需要真实中文字体时把渲染引擎选为
-**Browser (Chrome/Edge)** 即可。
+**Firefox / Chrome**（浏览器引擎）即可。
+
+**Q：我是 Firefox 重度用户，能正常使用吗？**
+能。前端界面用标准 API（Canvas2D、Pointer Events），与内核无关；后端会自动识别本机 Firefox
+并用它做最高保真渲染（含中文）。`svgen info` 可查看是否检测到 Firefox。
+注意 Gecko 的 headless 截图不支持透明背景，透明导出时会自动回退到 Rust 引擎。
 
 **Q：前端连不上后端？**
 确认 `python svgen.py serve` 正在运行、端口未占用；导出面板会显示 “Backend offline”。

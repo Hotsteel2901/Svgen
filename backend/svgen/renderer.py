@@ -46,39 +46,110 @@ def _set_svg_size(svg_text, width, height):
 
 
 def chrome_screenshot(svg_text, width, height, out_path, transparent=False):
-    """Render an SVG file to PNG with headless Chrome. Returns out_path."""
-    chrome = platform.find_chrome()
-    if not chrome:
+    """Render an SVG file to PNG with headless Chrome/Edge. Returns out_path."""
+    browser = platform.find_chrome()
+    if not browser:
         raise RenderError("No Chrome/Edge/Chromium executable found")
+    return _headless_screenshot(browser, "chrome", svg_text, width, height, out_path, transparent)
+
+
+def firefox_screenshot(svg_text, width, height, out_path, transparent=False, background=None):
+    """Render an SVG file to PNG with headless Firefox/Gecko. Returns out_path."""
+    browser = platform.find_firefox()
+    if not browser:
+        raise RenderError("No Firefox executable found")
+    # Gecko's --screenshot cannot produce a transparent background, so when a
+    # background is requested we bake it into the SVG; otherwise we fall back
+    # to an opaque white background for stills.
+    if transparent:
+        if background:
+            svg_text = _composite_bg(svg_text, background)
+            transparent = False
+    return _headless_screenshot(browser, "firefox", svg_text, width, height, out_path, transparent)
+
+
+def _composite_bg(svg_text, background):
+    """Inject a background rectangle into the SVG (for engines that cannot do
+    transparent screenshots)."""
+    try:
+        root = ET.fromstring(svg_text)
+    except ET.ParseError:
+        return svg_text
+    w = (root.get("width") or "800").replace("px", "")
+    h = (root.get("height") or "600").replace("px", "")
+    ns = root.tag[:root.tag.rindex("}") + 1] if "}" in root.tag else ""
+    bg = ET.Element(ns + "rect")
+    bg.set("x", "0")
+    bg.set("y", "0")
+    bg.set("width", w)
+    bg.set("height", h)
+    bg.set("fill", background)
+    root.insert(0, bg)
+    return ET.tostring(root, encoding="unicode")
+
+
+def _headless_screenshot(browser, kind, svg_text, width, height, out_path, transparent):
     tmp_svg = platform.fs.temp_file(".svg")
     try:
         platform.fs.write_text(tmp_svg, _set_svg_size(svg_text, width, height))
         url = "file:///" + tmp_svg.replace("\\", "/")
-        cmd = [chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars",
-               "--no-sandbox", "--force-device-scale-factor=1",
-               "--virtual-time-budget=1000"]
-        if transparent:
-            cmd.append("--default-background-color=00000000")
-        cmd += ["--screenshot=%s" % out_path,
-                "--window-size=%d,%d" % (width, height), url]
-        log.debug("chrome: %s" % " ".join(cmd))
+        if kind == "firefox":
+            profile = platform.fs.temp_file("") + "-profile"
+            platform.fs.makedirs(profile, exist_ok=True)
+            cmd = [browser, "--headless", "--profile", profile, "--no-remote",
+                   "--window-size", "%d,%d" % (width, height),
+                   "--screenshot", out_path, url]
+        else:
+            cmd = [browser, "--headless=new", "--disable-gpu", "--hide-scrollbars",
+                   "--no-sandbox", "--force-device-scale-factor=1",
+                   "--virtual-time-budget=1000"]
+            if transparent:
+                cmd.append("--default-background-color=00000000")
+            cmd += ["--screenshot=%s" % out_path,
+                    "--window-size=%d,%d" % (width, height), url]
+        log.debug("%s: %s" % (kind, " ".join(cmd)))
         try:
-            proc = subprocess.run(cmd, capture_output=True, timeout=120)
+            proc = subprocess.run(cmd, capture_output=True, timeout=180)
         except subprocess.TimeoutExpired:
             proc = None
-        # Chrome's launcher returns before the child finishes writing the
-        # screenshot, so poll for the output file.
-        deadline = time.time() + 30
+        # Launchers can return before the child finishes writing the file, so
+        # poll for the output.
+        deadline = time.time() + 40
         while time.time() < deadline:
             if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
                 return out_path
             time.sleep(0.25)
         if proc is not None and proc.returncode != 0:
-            raise RenderError("Chrome render failed (rc=%s): %s" % (
-                proc.returncode, proc.stderr.decode(errors="replace")[-300:]))
-        raise RenderError("Chrome render produced no output file")
+            raise RenderError("%s render failed (rc=%s): %s" % (
+                kind, proc.returncode, proc.stderr.decode(errors="replace")[-300:]))
+        raise RenderError("%s render produced no output file" % kind)
     finally:
         platform.fs.unlink(tmp_svg)
+
+
+def _pick_browser(engine):
+    """Return ('chrome'|'firefox', path) for a requested engine, or None."""
+    if engine in ("auto", "chrome"):
+        chrome = platform.find_chrome()
+        if chrome:
+            return ("chrome", chrome)
+    if engine in ("auto", "firefox"):
+        fx = platform.find_firefox()
+        if fx:
+            return ("firefox", fx)
+    return None
+
+
+def _browser_png_bytes(svg_text, width, height, transparent, background=None):
+    out = platform.fs.temp_file(".png")
+    try:
+        if platform.find_chrome():
+            chrome_screenshot(svg_text, width, height, out, transparent)
+        else:
+            firefox_screenshot(svg_text, width, height, out, transparent, background)
+        return platform.fs.read_bytes(out)
+    finally:
+        platform.fs.unlink(out)
 
 
 def _chrome_png_bytes(svg_text, width, height, transparent=False) -> bytes:
@@ -110,23 +181,27 @@ def render_static(svg_text, fmt="png", width=None, height=None, background=None,
     if quality is None:
         quality = 92
     width, height, _ = _resolve_size(svg_text, width, height)
-    if engine not in ("auto", "chrome", "raster", "rust"):
+    if engine not in ("auto", "chrome", "firefox", "raster", "rust"):
         raise RenderError("Unknown engine %r" % engine)
 
     # 1. headless browser — maximum fidelity (real fonts, full SVG)
-    if engine in ("auto", "chrome") and platform.find_chrome():
-        try:
-            png = _chrome_png_bytes(svg_text, width, height, background is None)
-            if fmt == "png" and background is None:
-                return png
+    if engine not in ("raster", "rust"):
+        browser = _pick_browser(engine)
+        if browser:
+            kind, _ = browser
             try:
-                return images.convert_pixels_to(_png_to_rgba(png), width, height, fmt, quality)
-            except Exception as exc:
-                raise RenderError("Chrome render produced an unusable image: %s" % exc)
-        except RenderError:
-            if engine == "chrome":
-                raise
-            log.debug("chrome engine unavailable, falling through")
+                transparent = background is None and kind == "chrome"
+                png = _browser_png_bytes(svg_text, width, height, transparent, background)
+                if fmt == "png" and background is None and transparent:
+                    return png
+                try:
+                    return images.convert_pixels_to(_png_to_rgba(png), width, height, fmt, quality)
+                except Exception as exc:
+                    raise RenderError("Browser render produced an unusable image: %s" % exc)
+            except RenderError:
+                if engine in ("chrome", "firefox"):
+                    raise
+                log.debug("%s engine unavailable, falling through" % kind)
 
     # 2. native Rust rasterizer — the default when no browser is present
     if engine in ("auto", "rust") and rslib.available():
@@ -210,12 +285,19 @@ def _resolve_size(svg_text, width, height):
 
 def _render_frame(svg_text, width, height, engine) -> bytes:
     """Return RGBA bytes for a static SVG frame (picks engine)."""
-    if engine in ("auto", "chrome") and platform.find_chrome():
-        try:
-            png = _chrome_png_bytes(svg_text, width, height, True)
-            return _png_to_rgba(png)
-        except Exception:
-            pass
+    if engine in ("auto", "chrome", "firefox"):
+        browser = _pick_browser(engine)
+        if browser:
+            kind, _ = browser
+            try:
+                # frames must be transparent for background compositing; Gecko
+                # cannot produce transparent screenshots so it is only used
+                # when a background is baked in.
+                if kind == "chrome":
+                    png = _chrome_png_bytes(svg_text, width, height, True)
+                    return _png_to_rgba(png)
+            except Exception:
+                pass
     if engine in ("auto", "rust") and rslib.available():
         try:
             _, _, rgba = rslib.render_to_pixels(svg_text, width, height, None)

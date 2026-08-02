@@ -8,10 +8,10 @@ A full-stack SVG illustration and animation studio.
   a standalone CLI + HTTP API, and toggle-able logging.
   Auto-detects the OS (`Windows` / `Linux` / `macOS`), architecture and chooses the platform-appropriate
   filesystem, temporary directories and console encoding. Converts animated SVG (SMIL) into
-  **PNG / JPG / BMP / WebP / GIF / MP4 / WebM** using three interchangeable renderers:
-  1. **Rust** — the native raster engine (fastest, no browser needed)
-  2. **Chrome / Edge headless** — maximum fidelity (real fonts, full SVG)
-  3. **pure-Python rasterizer** — zero-dependency fallback
+   **PNG / JPG / BMP / WebP / GIF / MP4 / WebM** using three interchangeable renderers:
+   1. **Rust** — the native raster engine (fastest, no browser needed)
+   2. **Chrome / Edge / Firefox headless** — maximum fidelity (real fonts, full SVG, CJK text)
+   3. **pure-Python rasterizer** — zero-dependency fallback
 - **Frontend** — dependency-free vanilla JS/HTML/CSS SPA. Full drawing tools, a keyframe timeline
   (like Adobe Animate), layers, onion skin, canvas + SMIL preview, and a one-click export panel
   that drives the backend.
@@ -67,7 +67,9 @@ the Rust rewrite is the primary GIF path with Python as fallback.
   `python svgen.py build-rs` (or `cargo build --release` in `backend/rust/svgen_rs`).
   Without it the backend transparently falls back to the pure-Python rasterizer.
 - **ffmpeg** — only required for `mp4` / `webm` export (fallback `gif` is pure-Python)
-- **Chrome / Edge / Chromium** — optional; used for maximum-fidelity rendering when present
+- **Chrome / Edge / Firefox (Gecko)** — optional; used for maximum-fidelity rendering
+  when present (Firefox detected on Windows/macOS/Linux). The front-end works in any
+  modern browser (vanilla JS + Canvas2D + Pointer Events, no SMIL dependency).
 - **Pillow** — optional; used for `jpg` / `webp` stills
 
 The backend reports what is available: `python svgen.py info`.
@@ -100,8 +102,8 @@ cat art.svg | python svgen.py render - -f webp -o out.webp
 | `--quiet` / `--verbose` | Per-invocation logging control |
 
 Render options: `--width`, `--height`, `--duration` (video, seconds), `--fps`, `--background`
-(hex color), `--engine auto|chrome|rust|raster`, `--quality`, `-o/--output`.
-Engine `auto` prefers Chrome/Edge for fidelity, then Rust for speed, then the Python fallback.
+(hex color), `--engine auto|chrome|firefox|rust|raster`, `--quality`, `-o/--output`.
+Engine `auto` prefers Chrome/Edge for fidelity, then Firefox, then Rust, then the Python fallback.
 
 > **Logging:** `svgen serve --logs off` silences log output for a session; `svgen logs on|off`
 > persists the choice in `~/.svgen/config.json`. The running server can also be toggled live
@@ -157,7 +159,7 @@ curl -X POST http://localhost:8090/api/export \
   keyboard shortcut `K` to add a keyframe.
 - **Layers** — reorder, rename, duplicate, delete, visibility and lock toggles.
 - **Export** — format, size, background, duration, fps and render-engine controls (Auto /
-  Browser / Rust / Python); live backend capability readout; downloads the finished file.
+  Chrome / Firefox / Rust / Python); live backend capability readout; downloads the finished file.
   Also supports SVG import and scene save/load (`.svgen.json`).
 
 ---

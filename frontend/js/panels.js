@@ -205,6 +205,7 @@ class Panels {
         <select id="exp-engine">
           <option value="auto">Auto</option>
           <option value="chrome">Browser (Chrome/Edge)</option>
+          <option value="firefox">Browser (Firefox/Gecko)</option>
           <option value="rust">Rust (native)</option>
           <option value="raster">Python (built-in)</option>
         </select></label>
@@ -223,7 +224,7 @@ class Panels {
       if (el2) {
         const c = info.capabilities || {};
         el2.innerHTML = `<b>${info.os} · ${info.arch}</b> (${info.fs} filesystem)<br>
-          Rust: ${c.rust ? "✓" : "✗"} &nbsp; browser: ${c.chrome ? "✓" : "✗"} &nbsp;
+          Rust: ${c.rust ? "✓" : "✗"} &nbsp; browser: ${c.chrome ? "Chrome" : c.firefox ? "Firefox" : "✗"} &nbsp;
           ffmpeg: ${c.ffmpeg ? "✓" : "✗"} &nbsp; Pillow: ${c.pillow ? "✓" : "✗"}`;
       }
     }).catch(() => {
