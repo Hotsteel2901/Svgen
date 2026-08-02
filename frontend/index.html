@@ -16,61 +16,62 @@
       <div class="brand-text"><b>SVGen</b><span>Studio</span></div>
     </div>
     <div class="tb-group">
-      <button class="tb-btn" id="new-file" title="New canvas (Ctrl+N)">New</button>
-      <button class="tb-btn" id="open-file" title="Open scene (.json)">Open</button>
-      <button class="tb-btn" id="save-file" title="Save scene (Ctrl+S)">Save</button>
+      <button class="tb-btn" id="new-file" data-i18n="new" data-i18n-title="new">New</button>
+      <button class="tb-btn" id="open-file" data-i18n="open">Open</button>
+      <button class="tb-btn" id="save-file" data-i18n="save">Save</button>
       <span class="tb-sep"></span>
-      <button class="tb-btn" id="import-svg" title="Import SVG shapes">SVG</button>
-      <button class="tb-btn" id="grid" title="Toggle grid">Grid</button>
+      <button class="tb-btn" id="import-svg" data-i18n="svg">SVG</button>
+      <button class="tb-btn" id="grid" data-i18n="grid">Grid</button>
       <span class="tb-sep"></span>
-      <button class="tb-btn icon" id="undo" title="Undo (Ctrl+Z)">↺</button>
-      <button class="tb-btn icon" id="redo" title="Redo (Ctrl+Y)">↻</button>
+      <button class="tb-btn icon" id="undo" data-i18n-title="undo" title="Undo (Ctrl+Z)">↺</button>
+      <button class="tb-btn icon" id="redo" data-i18n-title="redo" title="Redo (Ctrl+Y)">↻</button>
       <span class="tb-sep"></span>
-      <button class="tb-btn icon" id="zoom-out" title="Zoom out">−</button>
+      <button class="tb-btn icon" id="zoom-out" data-i18n-title="zoom.out" title="Zoom out">−</button>
       <span id="zoom-label" class="tb-label">100%</span>
-      <button class="tb-btn icon" id="zoom-in" title="Zoom in">+</button>
-      <button class="tb-btn icon" id="zoom-fit" title="Fit">⤢</button>
+      <button class="tb-btn icon" id="zoom-in" data-i18n-title="zoom.in" title="Zoom in">+</button>
+      <button class="tb-btn icon" id="zoom-fit" data-i18n-title="zoom.fit" title="Fit">⤢</button>
     </div>
     <div class="tb-right">
       <span class="engine-pill" id="engine-pill" title="Backend status">…</span>
-      <button class="tb-btn primary" id="btn-export-go" title="Open export panel">Export</button>
+      <button class="tb-btn" id="lang-toggle" data-i18n="lang" title="Language">中文</button>
+      <button class="tb-btn primary" id="btn-export-go" data-i18n="export">Export</button>
     </div>
   </header>
 
   <!-- Left tool rail -->
   <aside id="toolrail">
     <div class="rail-group" data-group="draw">
-      <button class="tool-btn" data-tool="select" title="Select / Move (V)">⌖</button>
-      <button class="tool-btn" data-tool="pen" title="Freehand pen (P)">✏️</button>
-      <button class="tool-btn" data-tool="path" title="Smooth path (B)">🖊</button>
-      <button class="tool-btn" data-tool="text" title="Text (T)">T</button>
+      <button class="tool-btn" data-tool="select" data-i18n-title="tool.select" title="Select / Move (V)">⌖</button>
+      <button class="tool-btn" data-tool="pen" data-i18n-title="tool.pen" title="Freehand pen (P)">✏️</button>
+      <button class="tool-btn" data-tool="path" data-i18n-title="tool.path" title="Smooth path (B)">🖊</button>
+      <button class="tool-btn" data-tool="text" data-i18n-title="tool.text" title="Text (T)">T</button>
     </div>
     <div class="rail-group" data-group="shape">
-      <button class="tool-btn" data-tool="rect" title="Rectangle (R)">▭</button>
-      <button class="tool-btn" data-tool="rounded" title="Rounded rectangle">▢</button>
-      <button class="tool-btn" data-tool="ellipse" title="Ellipse (O)">⬭</button>
-      <button class="tool-btn" data-tool="line" title="Line (L)">╱</button>
-      <button class="tool-btn" data-tool="arrow" title="Arrow (A)">➤</button>
-      <button class="tool-btn" data-tool="poly" title="Polygon (G)">⬠</button>
-      <button class="tool-btn" data-tool="star" title="Star (S)">★</button>
+      <button class="tool-btn" data-tool="rect" data-i18n-title="tool.rect" title="Rectangle (R)">▭</button>
+      <button class="tool-btn" data-tool="rounded" data-i18n-title="tool.rounded" title="Rounded rectangle">▢</button>
+      <button class="tool-btn" data-tool="ellipse" data-i18n-title="tool.ellipse" title="Ellipse (O)">⬭</button>
+      <button class="tool-btn" data-tool="line" data-i18n-title="tool.line" title="Line (L)">╱</button>
+      <button class="tool-btn" data-tool="arrow" data-i18n-title="tool.arrow" title="Arrow (A)">➤</button>
+      <button class="tool-btn" data-tool="poly" data-i18n-title="tool.poly" title="Polygon (G)">⬠</button>
+      <button class="tool-btn" data-tool="star" data-i18n-title="tool.star" title="Star (S)">★</button>
     </div>
     <div class="rail-group" data-group="style">
-      <label class="swatch-btn" title="Fill color">
+      <label class="swatch-btn" data-i18n-title="tool.fill" title="Fill color">
         <input type="color" id="t-fill" value="#6366f1">
         <span class="swatch-badge" id="fill-badge">F</span>
       </label>
-      <label class="swatch-btn" title="Stroke color">
+      <label class="swatch-btn" data-i18n-title="tool.stroke" title="Stroke color">
         <input type="color" id="t-stroke" value="#e2e8f0">
         <span class="swatch-badge" id="stroke-badge">S</span>
       </label>
-      <label class="width-btn" title="Stroke width">
+      <label class="width-btn" data-i18n-title="tool.width" title="Stroke width">
         <input type="range" id="t-stroke-w" min="1" max="24" value="3">
         <span id="stroke-w-label">3</span>
       </label>
     </div>
     <div class="rail-spacer"></div>
     <div class="rail-group">
-      <button class="tool-btn" id="clear-all" title="Clear canvas">🗑</button>
+      <button class="tool-btn" id="clear-all" data-i18n-title="tool.clear" title="Clear canvas">🗑</button>
     </div>
   </aside>
 
@@ -83,9 +84,9 @@
   <!-- Right panel -->
   <aside id="sidepanel">
     <div class="side-tabs">
-      <button class="side-tab active" data-tab="properties">Properties</button>
-      <button class="side-tab" data-tab="layers">Layers</button>
-      <button class="side-tab" data-tab="export">Export</button>
+      <button class="side-tab active" data-tab="properties" data-i18n="tab.properties">Properties</button>
+      <button class="side-tab" data-tab="layers" data-i18n="tab.layers">Layers</button>
+      <button class="side-tab" data-tab="export" data-i18n="tab.export">Export</button>
     </div>
     <div id="panel-body" class="panel-body"></div>
   </aside>
@@ -95,7 +96,7 @@
 
   <!-- Status bar -->
   <footer id="statusbar">
-    <span id="status-text">Ready</span>
+    <span id="status-text" data-i18n="status.ready">Ready</span>
     <span class="sb-right">⌖ select · P pen · R rect · K keyframe · Space pan</span>
   </footer>
 </div>
@@ -108,8 +109,8 @@
 <div id="help-modal" class="modal hidden">
   <div class="modal-card">
     <div class="modal-head">
-      <b>Keyboard Shortcuts</b>
-      <button class="tb-btn icon" id="help-close">✕</button>
+      <b data-i18n="help.title">Keyboard Shortcuts</b>
+      <button class="tb-btn icon" id="help-close" data-i18n-title="help.close" title="Close">✕</button>
     </div>
     <table class="shortcuts">
       <tr><td><kbd>V</kbd></td><td>Select / move</td><td><kbd>P</kbd></td><td>Freehand pen</td></tr>
@@ -127,6 +128,7 @@
 </div>
 
 <script src="js/store.js"></script>
+<script src="js/lang.js"></script>
 <script src="js/draw.js"></script>
 <script src="js/api.js"></script>
 <script src="js/tools.js"></script>

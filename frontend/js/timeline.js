@@ -23,24 +23,24 @@ class Timeline {
     top.className = "tl-top";
     top.innerHTML = `
       <div class="tl-transport">
-        <button class="tl-btn" id="btn-prev" title="Previous keyframe">⏮</button>
-        <button class="tl-btn" id="btn-play" title="Play / Pause">▶</button>
-        <button class="tl-btn" id="btn-next" title="Next keyframe">⏭</button>
-        <button class="tl-btn" id="btn-stop" title="Stop">⏹</button>
-        <button class="tl-btn" id="btn-loop" title="Loop">🔁</button>
+        <button class="tl-btn" id="btn-prev" data-i18n-title="tl.prev" title="${t("tl.prev")}">⏮</button>
+        <button class="tl-btn" id="btn-play" data-i18n-title="tl.play" title="${t("tl.play")}">▶</button>
+        <button class="tl-btn" id="btn-next" data-i18n-title="tl.next" title="${t("tl.next")}">⏭</button>
+        <button class="tl-btn" id="btn-stop" data-i18n-title="tl.stop" title="${t("tl.stop")}">⏹</button>
+        <button class="tl-btn" id="btn-loop" data-i18n-title="tl.loop" title="${t("tl.loop")}">🔁</button>
       </div>
       <div class="tl-time">
-        <input id="tl-time" type="text" title="Current time (s)">
+        <input id="tl-time" type="text" title="time">
         <span>/</span>
-        <input id="tl-duration" type="number" min="0.1" step="0.1" title="Duration (s)">
-        <select id="tl-fps" title="Frames per second">
-          ${[15, 24, 30, 60].map((f) => `<option value="${f}">${f} fps</option>`).join("")}
+        <input id="tl-duration" type="number" min="0.1" step="0.1" title="duration">
+        <select id="tl-fps" title="fps">
+          ${[15, 24, 30, 60].map((f) => `<option value="${f}">${t("tl.fps", { fps: f })}</option>`).join("")}
         </select>
       </div>
       <div class="tl-props" id="prop-chips"></div>
       <div class="tl-extras">
-        <button class="tl-btn" id="btn-key" title="Toggle keyframe at playhead (K)">◆ Add key</button>
-        <button class="tl-btn" id="btn-onion" title="Onion skin">Onion</button>
+        <button class="tl-btn" id="btn-key" title="K">${t("tl.addKey")}</button>
+        <button class="tl-btn" id="btn-onion" title="onion">${t("tl.onion")}</button>
       </div>`;
     this.el.appendChild(top);
 
@@ -69,9 +69,9 @@ class Timeline {
 
   buildPropChips() {
     this.propChips.innerHTML = "";
-    const props = [{ id: "x", label: "X" }, { id: "y", label: "Y" },
-      { id: "rotation", label: "Rot" }, { id: "scale", label: "Scale" },
-      { id: "opacity", label: "Opacity" }];
+    const props = [{ id: "x", label: t("tl.x") }, { id: "y", label: t("tl.y") },
+      { id: "rotation", label: t("tl.rot") }, { id: "scale", label: t("tl.scale") },
+      { id: "opacity", label: t("tl.opacity") }];
     for (const p of props) {
       const chip = document.createElement("button");
       chip.className = "prop-chip" + (p.id === this.activeProp ? " active" : "");
@@ -278,7 +278,7 @@ class Timeline {
   toggleKeyAtPlayhead() {
     const layer = this.scene.layers.find((l) => l.id === this.scene.selectedId);
     const t = this.scene.currentTime;
-    if (!layer) { this.app.status("Select a shape first"); return; }
+    if (!layer) { this.app.status(t("tl.selFirst")); return; }
     const prop = this.activeProp;
     const current = getKeyValue(layer, prop, t);
     if (hasKeyframe(layer, prop, t)) {

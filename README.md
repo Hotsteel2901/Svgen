@@ -162,6 +162,12 @@ curl -X POST http://localhost:8090/api/export \
   disabled while offline, toasts on reconnect), auto-save of the scene to `localStorage`
   (restored on reload), toast notifications, a `?` keyboard-shortcuts panel, live zoom readout,
   and an empty-canvas hint.
+- **i18n** — the UI ships in **English and 中文** (auto-detects the browser language; toggle in
+  the top bar). Text rendered on canvas and in exports uses the **embedded HarmonyOS Sans SC**
+  font, bundled as the **original, unmodified TTF files** under `frontend/fonts/` — exactly as
+  permitted by the HarmonyOS Sans Fonts License Agreement (copy/embed/bundle/redistribute
+  unmodified copies with software; no format conversion or modification).
+  See `frontend/fonts/Huawei_HarmonyOS_Sans_License.txt`.
 
 ---
 

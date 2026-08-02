@@ -26,6 +26,9 @@ MIME = {
     ".bmp": "image/bmp",
     ".mp4": "video/mp4",
     ".webm": "video/webm",
+    ".woff2": "font/woff2",
+    ".woff": "font/woff",
+    ".ttf": "font/ttf",
     ".ico": "image/x-icon",
     ".map": "application/json",
 }
@@ -179,7 +182,11 @@ class Handler(BaseHTTPRequestHandler):
         self._cors()
         self.send_header("Content-Type", MIME.get(ext, "application/octet-stream"))
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        if ext in (".woff2", ".woff", ".ttf", ".otf"):
+            # fonts are immutable and large — cache aggressively
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        else:
+            self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 

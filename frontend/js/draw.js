@@ -111,7 +111,7 @@ function paintLayer(ctx, layer, t, opacityMul = 1) {
     ctx.fillStyle = fill ? layer.fill : "#f8fafc";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = `600 ${layer.fontSize}px 'Segoe UI', system-ui, sans-serif`;
+    ctx.font = `600 ${layer.fontSize}px 'HarmonyOS Sans SC', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif`;
     ctx.fillText(layer.text || "", 0, 0);
   } else {
     traceGeometry(ctx, geom);

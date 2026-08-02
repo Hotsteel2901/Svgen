@@ -28,7 +28,7 @@ class Panels {
     const layer = this.scene.layers.find((l) => l.id === this.scene.selectedId);
     const el = this.el;
     if (!layer) {
-      el.innerHTML = `<div class="panel-empty">Select a shape on the canvas or in the timeline to edit its properties.</div>`;
+      el.innerHTML = `<div class="panel-empty">${t("prop.empty")}</div>`;
       return;
     }
     const app = this.app;
@@ -38,30 +38,30 @@ class Panels {
         <input type="number" step="${step}" value="${fmtNum(layer[prop])}" data-prop="${prop}"></label>`;
 
     let html = `<div class="prop-head"><input class="prop-name" value="${escXML(layer.name)}" data-name="1"></div>`;
-    html += `<div class="prop-section">Transform</div>`;
-    html += num("X", "x", 1) + num("Y", "y", 1);
-    html += num("Width", "width", 1) + num("Height", "height", 1);
-    html += num("Rotation", "rotation", 0.5) + num("Scale", "scale", 0.05) + num("Opacity", "opacity", 0.01);
-    html += `<div class="prop-section">Appearance</div>`;
-    html += `<label class="prop-row"><span>Fill</span><span class="swatch"><input type="color" value="${svgOrBlack(layer.fill)}" data-fill="1"><button class="sw-none" data-none="fill" title="No fill">∅</button></span></label>`;
-    html += `<label class="prop-row"><span>Stroke</span><span class="swatch"><input type="color" value="${svgOrBlack(layer.stroke)}" data-stroke="1"><button class="sw-none" data-none="stroke" title="No stroke">∅</button></span></label>`;
-    html += num("Stroke width", "strokeWidth", 0.5);
+    html += `<div class="prop-section">${t("prop.transform")}</div>`;
+    html += num(t("prop.x"), "x", 1) + num(t("prop.y"), "y", 1);
+    html += num(t("prop.width"), "width", 1) + num(t("prop.height"), "height", 1);
+    html += num(t("prop.rotation"), "rotation", 0.5) + num(t("prop.scale"), "scale", 0.05) + num(t("prop.opacity"), "opacity", 0.01);
+    html += `<div class="prop-section">${t("prop.appearance")}</div>`;
+    html += `<label class="prop-row"><span>${t("prop.fill")}</span><span class="swatch"><input type="color" value="${svgOrBlack(layer.fill)}" data-fill="1"><button class="sw-none" data-none="fill" title="${t("prop.fill")}">∅</button></span></label>`;
+    html += `<label class="prop-row"><span>${t("prop.stroke")}</span><span class="swatch"><input type="color" value="${svgOrBlack(layer.stroke)}" data-stroke="1"><button class="sw-none" data-none="stroke" title="${t("prop.stroke")}">∅</button></span></label>`;
+    html += num(t("prop.strokeW"), "strokeWidth", 0.5);
     if (layer.type === "text") {
-      html += `<div class="prop-section">Text</div>`;
+      html += `<div class="prop-section">${t("prop.text")}</div>`;
       html += `<label class="prop-row span2"><textarea rows="2" data-text="1">${escXML(layer.text || "")}</textarea></label>`;
-      html += num("Font size", "fontSize", 1);
+      html += num(t("prop.fontSize"), "fontSize", 1);
     }
     if (layer.type === "poly" || layer.type === "star") {
-      html += `<div class="prop-section">Shape</div>`;
-      html += num("Sides", "sides", 1);
+      html += `<div class="prop-section">${t("prop.shape")}</div>`;
+      html += num(t("prop.sides"), "sides", 1);
     }
     if (layer.type === "pen" || layer.type === "path") {
-      html += `<div class="prop-row"><span>Points</span><b>${layer.points.length}</b></div>`;
+      html += `<div class="prop-row"><span>${t("prop.points")}</span><b>${layer.points.length}</b></div>`;
     }
 
-    html += `<div class="prop-section">Animation <small>(${ANIM_PROPS.map((p) => (layer.keys[p] || []).length + " " + p).join(" · ")})</small></div>`;
-    html += `<button class="btn ghost full" id="clear-keys">Clear all keyframes</button>`;
-    html += `<button class="btn ghost full" id="del-layer">Delete layer</button>`;
+    html += `<div class="prop-section">${t("prop.animation")} <small>(${ANIM_PROPS.map((p) => (layer.keys[p] || []).length + " " + p).join(" · ")})</small></div>`;
+    html += `<button class="btn ghost full" id="clear-keys">${t("prop.clearKeys")}</button>`;
+    html += `<button class="btn ghost full" id="del-layer">${t("prop.delete")}</button>`;
 
     el.innerHTML = html;
 
@@ -108,10 +108,10 @@ class Panels {
     const app = this.app;
     const layers = this.scene.layers;
     let html = `<div class="layers-toolbar">
-      <button class="btn ghost sm" id="layer-up">▲</button>
-      <button class="btn ghost sm" id="layer-down">▼</button>
-      <button class="btn ghost sm" id="layer-dup">⧉</button>
-      <button class="btn ghost sm danger" id="layer-del">🗑</button>
+      <button class="btn ghost sm" id="layer-up" data-i18n-title="layer.up" title="${t("layer.up")}">▲</button>
+      <button class="btn ghost sm" id="layer-down" data-i18n-title="layer.down" title="${t("layer.down")}">▼</button>
+      <button class="btn ghost sm" id="layer-dup" data-i18n-title="layer.dup" title="${t("layer.dup")}">⧉</button>
+      <button class="btn ghost sm danger" id="layer-del" data-i18n-title="layer.del" title="${t("layer.del")}">🗑</button>
     </div><div class="layer-list">`;
     for (let i = 0; i < layers.length; i++) {
       const l = layers[i];
@@ -141,7 +141,7 @@ class Panels {
     el.querySelectorAll("[data-name]").forEach((s) => s.addEventListener("dblclick", (e) => {
       e.stopPropagation();
       const l = layers.find((x) => x.id === s.dataset.name);
-      const name = prompt("Rename layer:", l.name);
+      const name = prompt(t("layer.rename"), l.name);
       if (name) { l.name = name; app.requestRender(); this.renderLayers(); }
     }));
 
@@ -184,35 +184,35 @@ class Panels {
     const app = this.app;
     const scene = this.scene;
     let html = `
-      <div class="panel-empty exp-info" id="exp-info">Checking backend…</div>
-      <div class="prop-section">Canvas</div>
-      ${this._numRow("Width", "exp-w", scene.width, 1)}
-      ${this._numRow("Height", "exp-h", scene.height, 1)}
-      <label class="prop-row"><span>Background</span>
+      <div class="panel-empty exp-info" id="exp-info">${t("exp.checking")}</div>
+      <div class="prop-section">${t("exp.canvas")}</div>
+      ${this._numRow(t("exp.width"), "exp-w", scene.width, 1)}
+      ${this._numRow(t("exp.height"), "exp-h", scene.height, 1)}
+      <label class="prop-row"><span>${t("exp.background")}</span>
         <span class="swatch"><input type="color" id="exp-bg" value="${scene.bgColor && scene.bgColor !== "transparent" && scene.bgColor !== "none" ? scene.bgColor : "#ffffff"}">
         <button class="sw-none" id="exp-bg-none">∅</button></span></label>
-      <div class="prop-section">Output</div>
-      <label class="prop-row"><span>Format</span>
+      <div class="prop-section">${t("exp.output")}</div>
+      <label class="prop-row"><span>${t("exp.format")}</span>
         <select id="exp-fmt">
           ${["svg","png","jpg","bmp","webp","gif","mp4","webm"].map((f) => `<option value="${f}">${f.toUpperCase()}</option>`).join("")}
         </select></label>
       <div id="exp-video-opts">
-        ${this._numRow("Duration (s)", "exp-dur", scene.duration, 0.1)}
-        ${this._numRow("FPS", "exp-fps", scene.fps, 1)}
+        ${this._numRow(t("exp.duration"), "exp-dur", scene.duration, 0.1)}
+        ${this._numRow(t("exp.fps"), "exp-fps", scene.fps, 1)}
       </div>
-      <div class="prop-section">Render engine</div>
-      <label class="prop-row"><span>Engine</span>
+      <div class="prop-section">${t("exp.engine")}</div>
+      <label class="prop-row"><span>${t("exp.engine")}</span>
         <select id="exp-engine">
-          <option value="auto">Auto</option>
-          <option value="chrome">Browser (Chrome/Edge)</option>
-          <option value="firefox">Browser (Firefox/Gecko)</option>
-          <option value="rust">Rust (native)</option>
-          <option value="raster">Python (built-in)</option>
+          <option value="auto">${t("exp.engine.auto")}</option>
+          <option value="chrome">${t("exp.engine.chrome")}</option>
+          <option value="firefox">${t("exp.engine.firefox")}</option>
+          <option value="rust">${t("exp.engine.rust")}</option>
+          <option value="raster">${t("exp.engine.raster")}</option>
         </select></label>
       <div class="export-actions">
-        <button class="btn primary full" id="exp-go">Export &amp; Download</button>
-        <button class="btn ghost full" id="exp-svg">Download SVG</button>
-        <button class="btn ghost full" id="exp-copy">Copy SVG</button>
+        <button class="btn primary full" id="exp-go">${t("exp.go")}</button>
+        <button class="btn ghost full" id="exp-svg">${t("exp.svg")}</button>
+        <button class="btn ghost full" id="exp-copy">${t("exp.copy")}</button>
       </div>
       <div id="exp-progress" class="exp-progress hidden"></div>`;
 
@@ -245,7 +245,7 @@ class Panels {
     const syncOnline = (online) => {
       const offline = online === false;
       goBtn.disabled = offline;
-      goBtn.textContent = offline ? "Backend offline" : "Export & Download";
+      goBtn.textContent = offline ? t("exp.offline") : t("exp.go");
     };
     syncOnline(app.conn.online);
     app.conn.onChange((online) => syncOnline(online));
@@ -257,8 +257,8 @@ class Panels {
     });
     el.querySelector("#exp-copy").addEventListener("click", async () => {
       const svg = sceneToSVG(scene);
-      try { await navigator.clipboard.writeText(svg); this.app.status("SVG copied to clipboard"); }
-      catch (e) { this.app.status("Copy failed — select the text from the SVG file"); }
+      try { await navigator.clipboard.writeText(svg); this.app.status(t("exp.copied")); }
+      catch (e) { this.app.status(t("exp.copyFail")); }
     });
     el.querySelector("#exp-bg").addEventListener("input", (e) => { scene.bgColor = e.target.value; app.requestRender(); });
     el.querySelector("#exp-bg-none").addEventListener("click", () => { scene.bgColor = "transparent"; app.requestRender(); });
@@ -288,19 +288,21 @@ class Panels {
     const svg = sceneToSVG(scene, { width, height });
     const progress = document.getElementById("exp-progress");
     progress.classList.remove("hidden");
-    progress.textContent = "Validating…";
+    progress.textContent = t("exp.validating");
     const goBtn = document.getElementById("exp-go");
     if (goBtn) goBtn.disabled = true;
-    app.status(`Exporting ${fmt.toUpperCase()} (${width}×${height})…`);
+    app.status(t("st.exporting", { fmt: fmt.toUpperCase(), w: width, h: height }));
     try {
       const val = await API.validate(svg);
       if (!val.ok) {
-        progress.textContent = "SVG invalid: " + (val.error || "");
-        app.toast("SVG validation failed", "err");
+        progress.textContent = t("exp.invalid") + (val.error || "");
+        app.toast(t("toast.validFail"), "err");
         return;
       }
       const isVideo = ["mp4", "webm", "gif"].includes(fmt);
-      progress.textContent = isVideo ? `Rendering ${fps} fps × ${dur}s… (this may take a moment)` : "Rendering…";
+      progress.textContent = isVideo
+        ? t("exp.rendering", { fps, dur })
+        : t("exp.render");
       const res = await API.renderBytes({
         svg, format: fmt, width, height,
         duration: isVideo ? dur : undefined,
@@ -310,13 +312,13 @@ class Panels {
         name: "artwork",
       });
       await downloadBlob(res.blob, res.filename);
-      progress.textContent = `Done — ${res.filename}`;
-      app.toast(`Exported ${res.filename}`, "ok");
-      app.status(`Exported ${res.filename}`);
+      progress.textContent = t("exp.done", { name: res.filename });
+      app.toast(t("toast.exported", { name: res.filename }), "ok");
+      app.status(t("st.exported", { name: res.filename }));
     } catch (err) {
-      progress.textContent = "Export failed: " + err.message;
-      app.toast("Export failed: " + err.message, "err");
-      app.status("Export failed");
+      progress.textContent = t("exp.failed") + err.message;
+      app.toast(t("toast.exportFail", { msg: err.message }), "err");
+      app.status(t("st.exportFail"));
     } finally {
       if (goBtn) goBtn.disabled = app.conn.online === false;
     }

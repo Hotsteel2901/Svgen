@@ -59,8 +59,10 @@ function defaultLayer(type) {
 }
 
 function typeName(type) {
-  return { rect: "Rectangle", ellipse: "Ellipse", line: "Line", arrow: "Arrow",
-    poly: "Polygon", star: "Star", pen: "Freehand", path: "Path", text: "Text" }[type] || type;
+  const key = { rect: "shape.rect", rounded: "shape.rounded", ellipse: "shape.ellipse",
+    line: "shape.line", arrow: "shape.arrow", poly: "shape.poly", star: "shape.star",
+    pen: "shape.pen", path: "shape.path", text: "shape.text" }[type];
+  return (typeof t === "function" && key) ? t(key) : (key || type);
 }
 
 // ---- keyframe helpers ----------------------------------------------------
@@ -248,7 +250,7 @@ function layerToSVG(layer, duration) {
     }
     shape = `<path d="${d}" />`;
   } else if (g.kind === "text") {
-    shape = `<text x="0" y="0" text-anchor="middle" dominant-baseline="central" font-size="${fmtNum(layer.fontSize)}" font-family="'Segoe UI', system-ui, sans-serif">${escXML(layer.text || "")}</text>`;
+    shape = `<text x="0" y="0" text-anchor="middle" dominant-baseline="central" font-size="${fmtNum(layer.fontSize)}" font-family="'HarmonyOS Sans SC','Segoe UI','PingFang SC','Microsoft YaHei',system-ui,sans-serif">${escXML(layer.text || "")}</text>`;
   }
   if (g.kind === "arrow") {
     const x2 = g.x2;

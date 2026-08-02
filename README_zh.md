@@ -38,6 +38,10 @@
 - **图层系统**：排序、重命名、复制、删除、显隐、锁定
 - **体验与稳定性**：后端断线自动检测与重连（离线时导出按钮自动禁用、恢复后弹提示）、
   场景**自动保存**到浏览器（刷新不丢）、Toast 通知、`?` 快捷键面板、实时缩放显示、空画布引导
+- **中英文界面**：UI 支持**中文 / English**，自动跟随浏览器语言，顶栏一键切换；画布文字与导出
+  使用**内嵌 HarmonyOS Sans SC 字体**（以华为发布的**原始未修改 TTF** 直接打包，不做任何格式转换
+  或修改，完全符合 HarmonyOS Sans 字体许可协议中"随软件复制/嵌入/捆绑/分发未修改副本"的条款；
+  协议全文见 `frontend/fonts/Huawei_HarmonyOS_Sans_License.txt`）
 - **多种导出格式**：SVG / PNG / JPG / BMP / WebP / GIF / MP4 / WebM
 - **多渲染引擎**：Rust（原生，最快）→ Chrome/Edge/Firefox（真实字体、CJK 中文，最高保真）→ 纯 Python（零依赖兜底）
 - **Firefox / Gecko 兼容**：前端基于标准 API（Canvas2D、Pointer Events、fetch），任何现代浏览器均可使用；后端 headless 渲染自动识别并支持 Firefox，导出中文时请选浏览器引擎（Gecko 无法输出透明背景 PNG，透明导出会自动回退 Rust）

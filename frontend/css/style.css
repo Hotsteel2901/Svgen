@@ -1,5 +1,22 @@
 /* SVGen Studio — modern dark UI */
 
+/* Embedded HarmonyOS Sans SC font — ORIGINAL unmodified TTF files, bundled
+   per the HarmonyOS Sans Fonts License Agreement (see fonts/ license). */
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("../fonts/HarmonyOS_SansSC_Regular.ttf") format("truetype");
+  font-weight: 100 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("../fonts/HarmonyOS_SansSC_Bold.ttf") format("truetype");
+  font-weight: 600 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg: #0b0e16;
   --bg2: #10131c;
@@ -16,7 +33,7 @@
   --amber: #f59e0b;
   --radius: 10px;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font: "HarmonyOS Sans SC", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

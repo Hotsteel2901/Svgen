@@ -1,4 +1,4 @@
-// app.js — application bootstrap, canvas viewport, preview loop, shortcuts.
+﻿// app.js 鈥?application bootstrap, canvas viewport, preview loop, shortcuts.
 
 function createDefaultScene() {
   return {
@@ -59,7 +59,7 @@ class App {
     document.querySelectorAll(".tool-btn[data-tool]").forEach((b) => {
       b.addEventListener("click", () => {
         this.setTool(b.dataset.tool);
-        this.status(`Tool: ${b.title || b.dataset.tool}`);
+        this.status(t("st.tool", { name: b.title || b.dataset.tool }));
       });
     });
 
@@ -78,6 +78,9 @@ class App {
 
     document.getElementById("file-open").addEventListener("change", (e) => this.openScene(e));
     document.getElementById("file-svg").addEventListener("change", (e) => this.importSVG(e));
+
+    const langBtn = document.getElementById("lang-toggle");
+    if (langBtn) langBtn.addEventListener("click", () => setLang(LANG === "zh" ? "en" : "zh"));
 
     // fill / stroke quick pickers in toolbar
     document.getElementById("t-fill").addEventListener("input", (e) => {
@@ -207,13 +210,13 @@ class App {
   onConnectionChange(online, first) {
     const pill = document.getElementById("engine-pill");
     if (pill) {
-      pill.textContent = online ? "● backend online" : "○ backend offline";
+      pill.textContent = online ? "鈼?backend online" : "鈼?backend offline";
       pill.classList.toggle("ok", online);
       pill.classList.toggle("bad", !online);
     }
     this.panels.render(); // export controls reflect online state
     if (!first) {
-      this.toast(online ? "Backend reconnected" : "Backend connection lost — start `python svgen.py serve`", online ? "ok" : "err");
+      this.toast(online ? t("toast.reconnected") : t("toast.lost"), online ? "ok" : "err");
     }
   }
 
@@ -264,9 +267,9 @@ class App {
     const sb = document.getElementById("status-text");
     if (sb) {
       const count = this.scene.layers.length;
-      const name = sel ? ` · ${sel.name}` : "";
+      const name = sel ? ` 路 ${sel.name}` : "";
       if (this._statusMsg) {
-        sb.textContent = this._statusMsg + ` — ${count} layer${count === 1 ? "" : "s"}${name}`;
+        sb.textContent = this._statusMsg + ` 鈥?${count} layer${count === 1 ? "" : "s"}${name}`;
       } else {
         sb.textContent = `${count} layer${count === 1 ? "" : "s"}${name}`;
       }
@@ -289,7 +292,7 @@ class App {
     this._saveT = setTimeout(() => {
       try {
         localStorage.setItem(this._autosaveKey(), exportJSON(this.scene));
-      } catch (e) { /* storage full / unavailable — ignore */ }
+      } catch (e) { /* storage full / unavailable 鈥?ignore */ }
     }, 600);
   }
 
@@ -301,7 +304,7 @@ class App {
       if (!saved || !Array.isArray(saved.layers)) return false;
       this.scene = saved;
       this.pushHistory();
-      this.status("Restored autosaved scene");
+      this.status(t("st.restored"));
       return true;
     } catch (e) {
       return false;
@@ -436,7 +439,7 @@ class App {
       if (e.shiftKey) this.shiftKey = true;
       const tools = { v: "select", p: "pen", l: "line", a: "arrow", r: "rect",
         o: "ellipse", s: "star", g: "poly", t: "text", b: "path" };
-      if (tools[k]) { this.setTool(tools[k]); this.status(`Tool: ${tools[k]}`); }
+      if (tools[k]) { this.setTool(tools[k]); this.status(t("st.tool", { name: tools[k] })); }
       if (k === "delete" || k === "backspace") this.deleteSelected();
       if (k === "k") this.timeline.toggleKeyAtPlayhead();
       if (k === "?" || (e.key === "F1")) this._toggleHelp();
@@ -469,7 +472,7 @@ class App {
     this.panels.render();
     this.requestRender();
     this.status("");
-    this.toast("New canvas created", "info");
+    this.toast(t("toast.newScene"), "info");
   }
 
   saveScene() {
@@ -488,8 +491,8 @@ class App {
         this.timeline.rebuild();
         this.panels.render();
         this.requestRender();
-        this.status("Scene loaded");
-      } catch (err) { this.status("Failed to load scene: " + err.message); }
+        this.status(t("exp.sceneLoaded"));
+      } catch (err) { this.status(t("exp.loadFailed") + err.message); }
     };
     reader.readAsText(file);
     e.target.value = "";
@@ -509,11 +512,11 @@ class App {
           this.timeline.rebuild();
           this.panels.render();
           this.requestRender();
-          this.status(`Imported ${layers.length} shapes from SVG`);
+          this.status(t("exp.imported", { n: layers.length }));
         } else {
-          this.status("No supported shapes found in SVG");
+          this.status(t("exp.importNone"));
         }
-      } catch (err) { this.status("Import failed: " + err.message); }
+      } catch (err) { this.status(t("exp.failed") + err.message); }
     };
     reader.readAsText(file);
     e.target.value = "";
@@ -651,4 +654,5 @@ function parseSimpleSVG(svgText) {
 
 window.addEventListener("DOMContentLoaded", () => {
   window.app = new App();
+  applyI18n();
 });
