@@ -13,6 +13,8 @@ use std::ffi::c_void;
 use std::panic;
 use std::slice;
 
+mod gif;
+
 const MAGIC: u32 = 0x5356_4752; // "SVGR"
 const VERSION: u32 = 1;
 const OP_FILL_POLY: u8 = 1;
@@ -513,6 +515,58 @@ pub extern "C" fn svgen_free(handle: *mut c_void) {
     if !handle.is_null() {
         unsafe {
             drop(Box::from_raw(handle as *mut Vec<u8>));
+        }
+    }
+}
+
+/// Encode animated GIF frames (each width*height*4 RGBA) into a GIF.
+///
+/// `frames_ptr` points at an array of `n_frames` frame pointers.
+/// Returns 0 on success and stores the GIF bytes via the handle/data/len
+/// outputs (release with `svgen_free`).
+#[no_mangle]
+pub extern "C" fn svgen_gif_encode(
+    frames_ptr: *const *const u8,
+    n_frames: u32,
+    width: u32,
+    height: u32,
+    delay_cs: u32,
+    loop_forever: u32,
+    out_handle: *mut *mut c_void,
+    out_data: *mut *mut u8,
+    out_len: *mut usize,
+) -> i32 {
+    let result = panic::catch_unwind(|| -> Result<Vec<u8>, &'static str> {
+        if n_frames == 0 || width == 0 || height == 0 {
+            return Err("bad gif params");
+        }
+        let frames: Vec<&[u8]> = unsafe {
+            (0..n_frames)
+                .map(|i| {
+                    let p = *frames_ptr.add(i as usize);
+                    slice::from_raw_parts(p, (width as usize) * (height as usize) * 4)
+                })
+                .collect()
+        };
+        Ok(gif::encode_gif(&frames, width as usize, height as usize, delay_cs as u16, loop_forever != 0))
+    });
+
+    unsafe {
+        match result {
+            Ok(Ok(data)) => {
+                let len = data.len();
+                let boxed = Box::new(data);
+                *out_data = boxed.as_ptr() as *mut u8;
+                *out_len = len;
+                *out_handle = Box::into_raw(boxed) as *mut c_void;
+                0
+            }
+            _ => {
+                *out_handle = std::ptr::null_mut();
+                *out_data = std::ptr::null_mut();
+                *out_len = 0;
+                1
+            }
         }
     }
 }

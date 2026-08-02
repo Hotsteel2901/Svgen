@@ -18,7 +18,7 @@ A full-stack SVG illustration and animation studio.
 ├── backend/
 │   ├── svgen.py            # CLI entry:  python svgen.py <command>
 │   ├── rust/
-│   │   └── svgen_rs/       # native Rust raster engine (crate → cdylib)
+│   │   └── svgen_rs/       # native Rust engine (crate → cdylib): raster + GIF
 │   └── svgen/              # python package
 │       ├── cli.py          #   subcommands: info | validate | render | serve | logs | build-rs
 │       ├── api.py          #   HTTP API + static file server
@@ -40,10 +40,23 @@ A full-stack SVG illustration and animation studio.
 ## Why Rust for rendering
 
 The per-pixel hot loops (scanline polygon filling, gradient sampling, alpha blending,
-supersample downsampling) run in a native Rust `cdylib`. The Python side keeps the parts
-that are cheap and already tested — XML parsing, transforms, bezier/arc flattening, SMIL
-sampling — and streams a compact binary command list to Rust through a C ABI. Measured on
-a 720p, 23-frame video export: **Rust 0.6 s vs pure Python 25 s (≈44× faster)**.
+supersample downsampling) and the animated-GIF encoder (median-cut quantization + LZW)
+run in a native Rust `cdylib`. The Python side keeps the parts that are cheap and already
+tested — XML parsing, transforms, bezier/arc flattening, SMIL sampling, PNG/JPEG framing —
+and streams a compact binary command list to Rust through a C ABI.
+
+Benchmarked on this machine (Windows 11, AMD64):
+
+| Workload | pure Python | Rust engine | speedup |
+| --- | --- | --- | --- |
+| Still PNG 800×600 (gradient + 30 circles + path) | 3.94 s | 0.047 s | **83×** |
+| Video frames 24 fps × 1 s @ 640×360 | 54.91 s | 0.752 s | **73×** |
+| Animated GIF 320×240 × 12 frames | >420 s (unusable) | 0.023 s | **>18 000×** |
+
+Geometry extraction and SMIL animation baking are measured at ~10 ms / ~5 ms per frame —
+negligible — so they stay in Python. The GIF encoder's Python port was abandoned after
+measurement showed a quadratic octree reduction that could not finish a small animation;
+the Rust rewrite is the primary GIF path with Python as fallback.
 
 ## Requirements
 

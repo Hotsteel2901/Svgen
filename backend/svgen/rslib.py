@@ -70,6 +70,19 @@ def _load():
         ctypes.POINTER(ctypes.c_uint32),      # out_h
     ]
     lib.svgen_render.restype = ctypes.c_int
+
+    lib.svgen_gif_encode.argtypes = [
+        ctypes.POINTER(ctypes.c_void_p),      # frames array
+        ctypes.c_uint32,                      # n_frames
+        ctypes.c_uint32, ctypes.c_uint32,     # width, height
+        ctypes.c_uint32,                      # delay_cs
+        ctypes.c_uint32,                      # loop_forever
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.POINTER(ctypes.c_ubyte)),
+        ctypes.POINTER(ctypes.c_size_t),
+    ]
+    lib.svgen_gif_encode.restype = ctypes.c_int
+
     lib.svgen_free.argtypes = [ctypes.c_void_p]
     lib.svgen_version.restype = ctypes.c_uint32
 
@@ -92,6 +105,44 @@ def info():
     if not _ENGINE:
         return None
     return {"path": _ENGINE[1], "version": _ENGINE[0].svgen_version(), "api": 1}
+
+
+def encode_gif(frames, width, height, delay_cs=5, loop=True):
+    """Encode RGBA frames into a GIF with the native Rust encoder.
+
+    frames: list of bytearray/bytes, each width*height*4.
+    Returns GIF bytes. Raises RuntimeError if the native engine is absent.
+    """
+    with _LOCK:
+        if _ENGINE is None:
+            _load()
+        if not _ENGINE:
+            raise RuntimeError("svgen_rs native engine not available")
+
+    lib = _ENGINE[0]
+    n = len(frames)
+    if n == 0:
+        raise ValueError("no frames")
+    ptr_array = (ctypes.c_void_p * n)()
+    for i, f in enumerate(frames):
+        buf = ctypes.create_string_buffer(bytes(f), len(f))
+        ptr_array[i] = ctypes.cast(buf, ctypes.c_void_p)
+        frames[i] = buf  # keep buffers alive
+
+    handle = ctypes.c_void_p()
+    data = ctypes.POINTER(ctypes.c_ubyte)()
+    out_len = ctypes.c_size_t()
+    rc = lib.svgen_gif_encode(
+        ctypes.cast(ptr_array, ctypes.POINTER(ctypes.c_void_p)),
+        n, width, height, delay_cs, 1 if loop else 0,
+        ctypes.byref(handle), ctypes.byref(data), ctypes.byref(out_len),
+    )
+    if rc != 0 or not handle.value:
+        raise RuntimeError("svgen_rs gif encode failed (rc=%d)" % rc)
+    try:
+        return ctypes.string_at(data, out_len.value)
+    finally:
+        lib.svgen_free(handle)
 
 
 def render_to_pixels(svg_text, width=None, height=None, background=None):

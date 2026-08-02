@@ -209,9 +209,23 @@ def _gif_encode(frame_index, width, height, rgba, palette, transparency_idx=None
 
 
 def write_gif(frames, width, height, delay_cs=5, loop=True, disposal=2):
-    """frames: list of (rgba bytes)"""
+    """frames: list of (rgba bytes).
+
+    Prefers the native Rust GIF encoder (median-cut + LZW); falls back to the
+    pure-Python encoder when the native engine is unavailable.
+    """
     if not frames:
         raise ValueError("no frames")
+    try:
+        from . import rslib
+        if rslib.available():
+            return rslib.encode_gif(list(frames), width, height, delay_cs, loop)
+    except Exception:
+        pass
+    return _py_write_gif(frames, width, height, delay_cs, loop, disposal)
+
+
+def _py_write_gif(frames, width, height, delay_cs=5, loop=True, disposal=2):
     # build unified palette from all frames
     allpx = bytearray()
     for f in frames:
