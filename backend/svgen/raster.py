@@ -613,41 +613,89 @@ class Stop:
         self.color = color
 
 
+def _stop_offset(s):
+    return s.offset if hasattr(s, "offset") else s[0]
+
+
+def _stop_color(s):
+    return s.color if hasattr(s, "color") else s[1]
+
+
 def _sample_stops(stops, u, spread="pad"):
     if not stops:
         return (0, 0, 0, 0)
     if len(stops) == 1:
-        return stops[0].color
+        return _stop_color(stops[0])
     if spread == "pad":
-        if u <= stops[0].offset:
-            return stops[0].color
-        if u >= stops[-1].offset:
-            return stops[-1].color
+        if u <= _stop_offset(stops[0]):
+            return _stop_color(stops[0])
+        if u >= _stop_offset(stops[-1]):
+            return _stop_color(stops[-1])
     elif spread == "reflect":
         u = abs(u)
     elif spread == "repeat":
-        span = stops[-1].offset - stops[0].offset or 1.0
-        u = (u - stops[0].offset) % span + stops[0].offset
+        span = _stop_offset(stops[-1]) - _stop_offset(stops[0]) or 1.0
+        u = (u - _stop_offset(stops[0])) % span + _stop_offset(stops[0])
     for i in range(len(stops) - 1):
         s0, s1 = stops[i], stops[i + 1]
-        if s0.offset <= u <= s1.offset:
-            span = s1.offset - s0.offset
-            t = (u - s0.offset) / span if span else 0.0
-            return tuple(int(c0 + (c1 - c0) * t) for c0, c1 in zip(s0.color, s1.color))
-    return stops[0].color if u < stops[0].offset else stops[-1].color
+        o0, o1 = _stop_offset(s0), _stop_offset(s1)
+        if o0 <= u <= o1:
+            span = o1 - o0
+            t = (u - o0) / span if span else 0.0
+            c0, c1 = _stop_color(s0), _stop_color(s1)
+            return tuple(int(ca + (cb - ca) * t) for ca, cb in zip(c0, c1))
+    return _stop_color(stops[0]) if u < _stop_offset(stops[0]) else _stop_color(stops[-1])
 
 
-def build_gradient_painter(kind, params, stops, mat, spread="pad", obj_bbox=None):
-    """Return painter(x, y) -> rgba given a gradient definition in user space.
+def resolve_gradient(grad, bbox, mat):
+    """Resolve a gradient definition to buffer-space parameters.
 
-    `params` are in user units (already normalized for objectBoundingBox).
+    Returns (kind, params, spread, stops) where params are already in the
+    supersampled buffer coordinate space.
     """
-    if kind == "linear":
-        x1, y1, x2, y2 = params
-        ax, ay = mat.xf(x1, y1)
-        bx, by = mat.xf(x2, y2)
-        dx, dy = bx - ax, by - ay
+    stops = [(s.offset, s.color) for s in grad["stops"]]
+    gmat = grad["transform"]
+    if grad["units"] == "objectBoundingBox":
+        bx, by, bw, bh = bbox
+        if bw <= 0:
+            bw = 1.0
+        if bh <= 0:
+            bh = 1.0
+        if grad["kind"] == "linear":
+            x1, y1, x2, y2 = grad["params"]
+            p1 = gmat.xf(bx + x1 * bw, by + y1 * bh)
+            p2 = gmat.xf(bx + x2 * bw, by + y2 * bh)
+        else:
+            cx, cy, r = grad["params"]
+            pc = gmat.xf(bx + cx * bw, by + cy * bh)
+            rad = max(bw, bh) / 2.0 * r
+            p1 = (pc[0], pc[1])
+            p2 = (pc[0] + rad, pc[1])
+    else:
+        if grad["kind"] == "linear":
+            x1, y1, x2, y2 = grad["params"]
+            p1 = gmat.xf(x1, y1)
+            p2 = gmat.xf(x2, y2)
+        else:
+            cx, cy, r = grad["params"]
+            p1 = gmat.xf(cx, cy)
+            p2 = gmat.xf(cx + r, cy)
+    if grad["kind"] == "linear":
+        ax, ay = mat.xf(p1[0], p1[1])
+        bx2, by2 = mat.xf(p2[0], p2[1])
+        dx, dy = bx2 - ax, by2 - ay
         len2 = dx * dx + dy * dy
+        return ("linear", (ax, ay, dx, dy, len2), grad["spread"], stops)
+    ax, ay = mat.xf(p1[0], p1[1])
+    bx2, by2 = mat.xf(p2[0], p2[1])
+    r = math.hypot(bx2 - ax, by2 - ay)
+    return ("radial", (ax, ay, r), grad["spread"], stops)
+
+
+def build_gradient_painter(kind, params, stops, spread="pad"):
+    """Build a per-pixel painter from already buffer-space resolved params."""
+    if kind == "linear":
+        ax, ay, dx, dy, len2 = params
 
         def paint(px, py):
             if len2 == 0:
@@ -656,11 +704,8 @@ def build_gradient_painter(kind, params, stops, mat, spread="pad", obj_bbox=None
                 u = ((px - ax) * dx + (py - ay) * dy) / len2
             return _sample_stops(stops, u, spread)
     else:  # radial
-        cx, cy, r = params
-        ax, ay = mat.xf(cx, cy)
-        if r <= 0:
-            r = 1.0
-        rr = math.hypot(*mat.xf(cx + r, cy + r) and (mat.xf(cx + r, cy + r)[0] - ax, mat.xf(cx + r, cy + r)[1] - ay))
+        ax, ay, r = params
+        rr = r if r > 0 else 1.0
 
         def paint(px, py):
             u = math.hypot(px - ax, py - ay) / rr
@@ -840,8 +885,8 @@ class _Renderer:
             rid = color_attr[4:color_attr.rfind(")")].lstrip("#").rstrip(")")
             g = self.defs.get(rid)
         if g is not None:
-            painter = build_gradient_painter(g["kind"], g["params"], g["stops"], self.mat,
-                                             g["spread"], g.get("bbox"))
+            kind, params, spread, stops = resolve_gradient(g, bbox, self.mat)
+            painter = build_gradient_painter(kind, params, stops, spread)
         else:
             c = parse_color(color_attr)
             if c is None:
@@ -869,7 +914,7 @@ class _Renderer:
         if tag in ("linearGradient", "radialGradient"):
             return  # handled through defs map
         if tag in ("rect", "circle", "ellipse", "line", "polyline", "polygon", "path"):
-            subpaths = self._shape_subpaths(el, tag)
+            subpaths = shape_subpaths(el, tag)
             if not subpaths:
                 return
             geom_bbox = None
@@ -883,48 +928,6 @@ class _Renderer:
             self._render_polys(el, subpaths, m, sub_op, geom_bbox)
         elif tag == "text":
             self._render_text(el, m, sub_op)
-
-    def _shape_subpaths(self, el, tag):
-        if tag == "rect":
-            x = _number(el, "x", 0); y = _number(el, "y", 0)
-            w = _number(el, "width", 0); h = _number(el, "height", 0)
-            rx = _number(el, "rx", 0); ry = _number(el, "ry", rx)
-            if rx > 0 or ry > 0:
-                rx = min(rx, w / 2); ry = min(ry, h / 2)
-                d = ("M %.3f %.3f L %.3f %.3f A %.3f %.3f 0 0 1 %.3f %.3f L %.3f %.3f "
-                     "A %.3f %.3f 0 0 1 %.3f %.3f L %.3f %.3f A %.3f %.3f 0 0 1 %.3f %.3f "
-                     "L %.3f %.3f A %.3f %.3f 0 0 1 %.3f %.3f Z") % (
-                    x + rx, y, x + w - rx, y, rx, ry, x + w, y + ry,
-                    x + w, y + h - ry, rx, ry, x + w - rx, y + h,
-                    x + rx, y + h, rx, ry, x, y + h - ry,
-                    x, y + ry, rx, ry, x + rx, y)
-                return path_to_polylines(d)
-            return [[(x, y), (x + w, y), (x + w, y + h), (x, y + h)]]
-        if tag == "circle":
-            cx = _number(el, "cx", 0); cy = _number(el, "cy", 0); r = _number(el, "r", 0)
-            return [_circle_poly(cx, cy, r, 64)]
-        if tag == "ellipse":
-            cx = _number(el, "cx", 0); cy = _number(el, "cy", 0)
-            rx = _number(el, "rx", 0); ry = _number(el, "ry", 0)
-            pts = []
-            for i in range(64):
-                a = 2 * math.pi * i / 64
-                pts.append((cx + rx * math.cos(a), cy + ry * math.sin(a)))
-            return [pts]
-        if tag == "line":
-            return [[(_number(el, "x1", 0), _number(el, "y1", 0)),
-                     (_number(el, "x2", 0), _number(el, "y2", 0))]]
-        if tag == "polyline" or tag == "polygon":
-            pts = list(zip(parse_float_list(_attr(el, "points", ""))[0::2],
-                           parse_float_list(_attr(el, "points", ""))[1::2]))
-            if not pts:
-                return []
-            if tag == "polygon":
-                pts.append(pts[0])
-            return [pts]
-        if tag == "path":
-            return path_to_polylines(_attr(el, "d", ""))
-        return []
 
     def _render_polys(self, el, subpaths, mat, sub_op, geom_bbox):
         # transform local points
@@ -1054,6 +1057,50 @@ def _root_viewport(root):
     return parse_length(w), parse_length(h), vb
 
 
+def shape_subpaths(el, tag):
+    """Geometry for a shape element -> list of local-space polylines."""
+    if tag == "rect":
+        x = _number(el, "x", 0); y = _number(el, "y", 0)
+        w = _number(el, "width", 0); h = _number(el, "height", 0)
+        rx = _number(el, "rx", 0); ry = _number(el, "ry", rx)
+        if rx > 0 or ry > 0:
+            rx = min(rx, w / 2); ry = min(ry, h / 2)
+            d = ("M %.3f %.3f L %.3f %.3f A %.3f %.3f 0 0 1 %.3f %.3f L %.3f %.3f "
+                 "A %.3f %.3f 0 0 1 %.3f %.3f L %.3f %.3f A %.3f %.3f 0 0 1 %.3f %.3f "
+                 "L %.3f %.3f A %.3f %.3f 0 0 1 %.3f %.3f Z") % (
+                x + rx, y, x + w - rx, y, rx, ry, x + w, y + ry,
+                x + w, y + h - ry, rx, ry, x + w - rx, y + h,
+                x + rx, y + h, rx, ry, x, y + h - ry,
+                x, y + ry, rx, ry, x + rx, y)
+            return path_to_polylines(d)
+        return [[(x, y), (x + w, y), (x + w, y + h), (x, y + h)]]
+    if tag == "circle":
+        cx = _number(el, "cx", 0); cy = _number(el, "cy", 0); r = _number(el, "r", 0)
+        return [_circle_poly(cx, cy, r, 64)]
+    if tag == "ellipse":
+        cx = _number(el, "cx", 0); cy = _number(el, "cy", 0)
+        rx = _number(el, "rx", 0); ry = _number(el, "ry", 0)
+        pts = []
+        for i in range(64):
+            a = 2 * math.pi * i / 64
+            pts.append((cx + rx * math.cos(a), cy + ry * math.sin(a)))
+        return [pts]
+    if tag == "line":
+        return [[(_number(el, "x1", 0), _number(el, "y1", 0)),
+                 (_number(el, "x2", 0), _number(el, "y2", 0))]]
+    if tag == "polyline" or tag == "polygon":
+        pts = list(zip(parse_float_list(_attr(el, "points", ""))[0::2],
+                       parse_float_list(_attr(el, "points", ""))[1::2]))
+        if not pts:
+            return []
+        if tag == "polygon":
+            pts.append(pts[0])
+        return [pts]
+    if tag == "path":
+        return path_to_polylines(_attr(el, "d", ""))
+    return []
+
+
 def render_to_pixels(svg_text, width=None, height=None, background=None):
     """Render SVG to a supersampled RGBA buffer. Returns (pw, ph, bytearray RGBA).
 
@@ -1108,6 +1155,9 @@ def render_to_pixels(svg_text, width=None, height=None, background=None):
         base = Mat(1, 0, 0, 1, 0, 0)
 
     S = SUPERSAMPLE
+    # map user coordinates -> supersampled buffer space
+    base = Mat(base.a * S, base.b * S, base.c * S, base.d * S, base.e * S, base.f * S)
+
     pw, ph = width * S, height * S
     canvas = Canvas(pw, ph)
     defs = _collect_defs(root)

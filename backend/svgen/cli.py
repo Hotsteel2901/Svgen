@@ -31,6 +31,7 @@ def cmd_info(args):
     print("  Hostname        : %s" % info["host"])
     print("  ffmpeg          : %s" % (caps["ffmpeg_path"] or "not found"))
     print("  Chrome/Edge     : %s" % (caps["chrome_path"] or "not found"))
+    print("  Rust engine     : %s" % (caps["rust_info"]["path"] if caps.get("rust") else "not built (run: svgen build-rs)"))
     print("  Pillow          : %s" % ("yes" if caps["pillow"] else "no"))
     print("  default engine  : %s" % caps["engine"])
 
@@ -114,6 +115,28 @@ def cmd_logs(args):
     print("Logging %s." % ("enabled" if on else "disabled"))
 
 
+def cmd_build_rs(args):
+    import subprocess as sp
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    crate = os.path.join(here, "rust", "svgen_rs")
+    if not os.path.isfile(os.path.join(crate, "Cargo.toml")):
+        print("Rust crate not found at %s" % crate, file=sys.stderr)
+        return 1
+    cmd = ["cargo", "build", "--release"] if not args.debug else ["cargo", "build"]
+    print("Building svgen_rs (%s)..." % crate)
+    proc = sp.run(cmd, cwd=crate)
+    if proc.returncode != 0:
+        print("Build failed — is Rust (cargo) installed?", file=sys.stderr)
+        return 1
+    from . import rslib
+    if rslib.available():
+        print("Native Rust engine ready: %s" % rslib.info()["path"])
+    else:
+        print("Build completed but the engine could not be located at runtime.", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv=None):
     platform.init()
     parser = argparse.ArgumentParser(
@@ -148,7 +171,7 @@ def main(argv=None):
     p_render.add_argument("--duration", type=float, default=None, help="video length in seconds")
     p_render.add_argument("--fps", type=int, default=30, help="video frame rate")
     p_render.add_argument("--background", default=None, help="background color (hex)")
-    p_render.add_argument("--engine", default="auto", choices=["auto", "chrome", "raster"])
+    p_render.add_argument("--engine", default="auto", choices=["auto", "chrome", "raster", "rust"])
     p_render.add_argument("--quality", type=int, default=None, help="JPEG/MP4 quality (0-100)")
     p_render.add_argument("-o", "--output", default=None, help="output file path")
     p_render.set_defaults(func=cmd_render)
@@ -164,6 +187,10 @@ def main(argv=None):
     p_logs = sub.add_parser("logs", help="persist the logging on/off state")
     p_logs.add_argument("state", choices=["on", "off"])
     p_logs.set_defaults(func=cmd_logs)
+
+    p_build = sub.add_parser("build-rs", help="compile the native Rust renderer (needs cargo)")
+    p_build.add_argument("--debug", action="store_true", help="build without optimizations")
+    p_build.set_defaults(func=cmd_build_rs)
 
     args = parser.parse_args(argv)
     if args.quiet:

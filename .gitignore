@@ -9,6 +9,9 @@ venv/
 node_modules/
 dist/
 
+# Rust
+backend/rust/svgen_rs/target/
+
 # OS / editor
 .DS_Store
 Thumbs.db

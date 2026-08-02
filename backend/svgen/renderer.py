@@ -19,6 +19,7 @@ from .logs import log
 from . import animate
 from . import raster
 from . import images
+from . import rslib
 
 
 SUPPORTED_STILL = ("png", "jpg", "jpeg", "bmp", "webp")
@@ -109,30 +110,47 @@ def render_static(svg_text, fmt="png", width=None, height=None, background=None,
     if quality is None:
         quality = 92
     width, height, _ = _resolve_size(svg_text, width, height)
-    if engine not in ("auto", "chrome", "raster"):
+    if engine not in ("auto", "chrome", "raster", "rust"):
         raise RenderError("Unknown engine %r" % engine)
 
-    rgba = None
+    # 1. headless browser — maximum fidelity (real fonts, full SVG)
     if engine in ("auto", "chrome") and platform.find_chrome():
-        png = _chrome_png_bytes(svg_text, width, height, background is None)
-        if fmt == "png" and background is None:
-            return png
-        # convert via Pillow when needed
         try:
-            return images.convert_pixels_to(_png_to_rgba(png), width, height, fmt, quality)
-        except Exception as exc:
-            if engine == "chrome":
+            png = _chrome_png_bytes(svg_text, width, height, background is None)
+            if fmt == "png" and background is None:
+                return png
+            try:
+                return images.convert_pixels_to(_png_to_rgba(png), width, height, fmt, quality)
+            except Exception as exc:
                 raise RenderError("Chrome render produced an unusable image: %s" % exc)
-    # pure raster fallback / requested
+        except RenderError:
+            if engine == "chrome":
+                raise
+            log.debug("chrome engine unavailable, falling through")
+
+    # 2. native Rust rasterizer — the default when no browser is present
+    if engine in ("auto", "rust") and rslib.available():
+        try:
+            w, h, rgba = rslib.render_to_pixels(svg_text, width, height, background)
+            return _encode_rgba(rgba, w, h, fmt, quality)
+        except Exception as exc:
+            if engine == "rust":
+                raise RenderError("Rust render failed: %s" % exc)
+            log.debug("rust engine failed (%s), falling through" % exc)
+
+    # 3. pure-Python rasterizer — zero-dependency fallback
     try:
         width, height, rgba = raster.render_to_pixels(svg_text, width, height, background)
     except Exception as exc:
         raise RenderError("Rasterization failed: %s" % exc)
+    return _encode_rgba(rgba, width, height, fmt, quality)
+
+
+def _encode_rgba(rgba, width, height, fmt, quality=92):
     if fmt == "png":
         return images.write_png(width, height, rgba)
     if fmt == "bmp":
         return images.write_bmp(width, height, rgba)
-    # jpg/webp need Pillow
     try:
         return images.convert_pixels_to(rgba, width, height, fmt, quality)
     except Exception as exc:
@@ -196,6 +214,12 @@ def _render_frame(svg_text, width, height, engine) -> bytes:
         try:
             png = _chrome_png_bytes(svg_text, width, height, True)
             return _png_to_rgba(png)
+        except Exception:
+            pass
+    if engine in ("auto", "rust") and rslib.available():
+        try:
+            _, _, rgba = rslib.render_to_pixels(svg_text, width, height, None)
+            return rgba
         except Exception:
             pass
     _, _, rgba = raster.render_to_pixels(svg_text, width, height, None)

@@ -204,14 +204,24 @@ def find_chrome():
 
 def capabilities() -> dict:
     """Which renderers / tools are usable on this machine."""
-    from . import __version__
+    from . import __version__  # noqa: F401
+    rust = False
+    rust_info = None
+    try:
+        from . import rslib
+        rust = rslib.available()
+        rust_info = rslib.info()
+    except Exception:
+        pass
     return {
         "ffmpeg": bool(find_ffmpeg()),
         "ffmpeg_path": find_ffmpeg(),
         "chrome": bool(find_chrome()),
         "chrome_path": find_chrome(),
         "pillow": _pillow_ok(),
-        "engine": "chrome" if find_chrome() else "raster",
+        "rust": rust,
+        "rust_info": rust_info,
+        "engine": "chrome" if find_chrome() else ("rust" if rust else "raster"),
     }
 
 

@@ -205,7 +205,8 @@ class Panels {
         <select id="exp-engine">
           <option value="auto">Auto</option>
           <option value="chrome">Browser (Chrome/Edge)</option>
-          <option value="raster">Built-in (no deps)</option>
+          <option value="rust">Rust (native)</option>
+          <option value="raster">Python (built-in)</option>
         </select></label>
       <div class="export-actions">
         <button class="btn primary full" id="exp-go">Export &amp; Download</button>
@@ -222,7 +223,8 @@ class Panels {
       if (el2) {
         const c = info.capabilities || {};
         el2.innerHTML = `<b>${info.os} · ${info.arch}</b> (${info.fs} filesystem)<br>
-          ffmpeg: ${c.ffmpeg ? "✓" : "✗"} &nbsp; browser: ${c.chrome ? "✓" : "✗"} &nbsp; Pillow: ${c.pillow ? "✓" : "✗"}`;
+          Rust: ${c.rust ? "✓" : "✗"} &nbsp; browser: ${c.chrome ? "✓" : "✗"} &nbsp;
+          ffmpeg: ${c.ffmpeg ? "✓" : "✗"} &nbsp; Pillow: ${c.pillow ? "✓" : "✗"}`;
       }
     }).catch(() => {
       const el2 = document.getElementById("exp-info");
