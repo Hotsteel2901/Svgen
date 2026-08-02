@@ -1,5 +1,7 @@
 # SVGen Studio — SVG Drawing & Animation Maker
 
+> **English** · [中文文档](README_zh.md)
+
 A full-stack SVG illustration and animation studio.
 
 - **Backend** — pure-Python (stdlib only) orchestration with a **native Rust rasterization engine**,
@@ -157,3 +159,7 @@ curl -X POST http://localhost:8090/api/export \
 - **Export** — format, size, background, duration, fps and render-engine controls (Auto /
   Browser / Rust / Python); live backend capability readout; downloads the finished file.
   Also supports SVG import and scene save/load (`.svgen.json`).
+
+---
+
+**[中文文档](README_zh.md) · English**
