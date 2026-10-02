@@ -9,16 +9,51 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use std::ffi::c_void;
+use std::cell::RefCell;
+use std::ffi::{c_void, CString};
+use std::os::raw::c_char;
 use std::panic;
 use std::slice;
 
 mod gif;
 
+thread_local! {
+    /// Why the last call on this thread failed. The returned pointer stays
+    /// valid until the next `svgen_last_error` on the same thread.
+    static LAST_ERROR: RefCell<Option<CString>> = RefCell::new(None);
+}
+
+fn set_last_error(msg: &str) {
+    LAST_ERROR.with(|slot| {
+        *slot.borrow_mut() = CString::new(msg).ok();
+    });
+}
+
+/// A human-readable reason for the previous failure, or NULL.
+///
+/// The pointer is owned by the library: copy it before the next call on this
+/// thread. Panics are reported here too, so a caught panic is diagnosable.
+#[no_mangle]
+pub extern "C" fn svgen_last_error() -> *const c_char {
+    LAST_ERROR.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .map(|c| c.as_ptr())
+            .unwrap_or(std::ptr::null())
+    })
+}
+
 const MAGIC: u32 = 0x5356_4752; // "SVGR"
 const VERSION: u32 = 1;
 const OP_FILL_POLY: u8 = 1;
 const OP_FILL_RECT: u8 = 2;
+
+/// Hard ceiling on the rasterized (supersampled) pixel count — 8192² at ss=2.
+/// Beyond this the allocation would abort the process rather than fail.
+const MAX_PIXELS: usize = 8192 * 8192 * 4;
+
+/// GIF dimensions are stored in 16-bit little-endian fields.
+const GIF_MAX_DIMENSION: u32 = 65535;
 
 // ---------------------------------------------------------------------------
 // Canvas / blending
@@ -31,8 +66,10 @@ struct Canvas {
 }
 
 impl Canvas {
-    fn new(w: usize, h: usize) -> Canvas {
-        Canvas { w, h, buf: vec![0u8; w * h * 4] }
+    /// Wrap a buffer the caller allocated fallibly (`try_reserve`), so an
+    /// oversized canvas returns an error instead of aborting the process.
+    fn from_buffer(w: usize, h: usize, buf: Vec<u8>) -> Canvas {
+        Canvas { w, h, buf }
     }
 
     #[inline]
@@ -212,7 +249,13 @@ fn fill_poly(canvas: &mut Canvas, pts: &[f32], rule: u8, paint: &Paint) {
     if edges.is_empty() {
         return;
     }
-    edges.sort_by(|a, b| a.ymin.partial_cmp(&b.ymin).unwrap().then(a.x.partial_cmp(&b.x).unwrap()));
+    // NaN-safe ordering: a plain `partial_cmp().unwrap()` panics on the NaN
+    // that a coordinate like `1e999` produces, killing the engine.
+    edges.sort_by(|a, b| {
+        a.ymin
+            .total_cmp(&b.ymin)
+            .then(a.x.total_cmp(&b.x))
+    });
 
     let sy0 = (y0.floor().max(0.0)) as i32;
     let sy1 = (y1.ceil().min(canvas.h as f32 - 1.0)) as i32;
@@ -233,7 +276,7 @@ fn fill_poly(canvas: &mut Canvas, pts: &[f32], rule: u8, paint: &Paint) {
         for e in aet.iter_mut() {
             e.0 += e.2;
         }
-        aet.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        aet.sort_by(|a, b| a.0.total_cmp(&b.0));
 
         if rule == 0 {
             // even-odd
@@ -272,6 +315,16 @@ fn fill_poly(canvas: &mut Canvas, pts: &[f32], rule: u8, paint: &Paint) {
 // Downsampling (box filter) + background composite
 // ---------------------------------------------------------------------------
 
+/// Box-filter downsample in *premultiplied* space.
+///
+/// Averaging unassociated RGB together with transparent (0,0,0,0) sub-samples
+/// halves the colour of every partially covered pixel, giving dark fringes on
+/// antialiased edges — and made the native engine disagree with the Python
+/// reference on every faded edge.
+///
+/// Truncating integer division throughout, deliberately: `raster.py` uses
+/// `r // a` and `a // cnt`, and any rounding here shows up as a one-byte
+/// channel difference between the two engines.
 fn downsample(buf: &[u8], pw: usize, ph: usize, s: usize) -> Vec<u8> {
     let w = pw / s;
     let h = ph / s;
@@ -286,17 +339,20 @@ fn downsample(buf: &[u8], pw: usize, ph: usize, s: usize) -> Vec<u8> {
             for sy in 0..s {
                 for sx in 0..s {
                     let idx = ((oy * s + sy) * pw + (ox * s + sx)) * 4;
-                    r += buf[idx] as u32;
-                    g += buf[idx + 1] as u32;
-                    b += buf[idx + 2] as u32;
-                    a += buf[idx + 3] as u32;
+                    let sa = buf[idx + 3] as u32;
+                    r += buf[idx] as u32 * sa;
+                    g += buf[idx + 1] as u32 * sa;
+                    b += buf[idx + 2] as u32 * sa;
+                    a += sa;
                 }
             }
             let idx = (oy * w + ox) * 4;
-            out[idx] = (r / cnt) as u8;
-            out[idx + 1] = (g / cnt) as u8;
-            out[idx + 2] = (b / cnt) as u8;
-            out[idx + 3] = (a / cnt) as u8;
+            if a > 0 {
+                out[idx] = (r / a).min(255) as u8;
+                out[idx + 1] = (g / a).min(255) as u8;
+                out[idx + 2] = (b / a).min(255) as u8;
+            }
+            out[idx + 3] = (a / cnt).min(255) as u8;
         }
     }
     out
@@ -453,32 +509,66 @@ pub extern "C" fn svgen_render(
     out_w: *mut u32,
     out_h: *mut u32,
 ) -> i32 {
+    // Every out-parameter is written unconditionally below, so a caller that
+    // passes NULL would get an access violation instead of an error code.
+    if out_handle.is_null() || out_data.is_null() || out_len.is_null()
+        || out_w.is_null() || out_h.is_null()
+    {
+        return -1;
+    }
+
     let result = panic::catch_unwind(|| -> Result<Vec<u8>, &'static str> {
-        let ss = supersample.max(1) as usize;
+        // `supersample` is caller-supplied; 1<<20 starves the allocation.
+        if supersample == 0 || supersample > 8 {
+            return Err("supersample out of range (1..=8)");
+        }
+        let ss = supersample as usize;
         let pw = (width as usize).saturating_mul(ss);
         let ph = (height as usize).saturating_mul(ss);
-        if pw == 0 || ph == 0 || pw.checked_mul(ph).is_none() {
+        if pw == 0 || ph == 0 {
             return Err("bad size");
         }
-        let ops = if ops_ptr.is_null() { &[] } else { unsafe { slice::from_raw_parts(ops_ptr, ops_len) } };
-        let mut canvas = Canvas::new(pw, ph);
+        // Guard the FULL allocation, not just w*h: 100000x100000 would ask for
+        // 160 GB and Rust aborts the process, which catch_unwind cannot trap
+        // and Python cannot intercept.
+        let pixels = pw
+            .checked_mul(ph)
+            .ok_or("canvas too large")?;
+        if pixels > MAX_PIXELS {
+            return Err("canvas too large");
+        }
+        let bytes = pixels.checked_mul(4).ok_or("canvas too large")?;
+        let mut buf: Vec<u8> = Vec::new();
+        buf.try_reserve_exact(bytes).map_err(|_| "out of memory")?;
+        buf.resize(bytes, 0);
+        let mut canvas = Canvas::from_buffer(pw, ph, buf);
+        let ops = if ops_ptr.is_null() { &[][..] } else { unsafe { slice::from_raw_parts(ops_ptr, ops_len) } };
         run_ops(&mut canvas, ops)?;
 
         let mut out = downsample(&canvas.buf, pw, ph, ss);
 
-        // background composite (same semantics as the Python rasterizer)
+        // Source-over composite onto the requested background.
+        //
+        // This used to scale by the *background's* alpha, so an opaque
+        // background (`ba == 255`) drove every pixel to the background colour
+        // and erased the drawing. Coverage has to come from the source alpha.
         if !bg_ptr.is_null() && bg_len >= 4 {
             let bg = unsafe { slice::from_raw_parts(bg_ptr, 4) };
             let ba = bg[3];
             if ba > 0 {
                 let da = ba as f32 / 255.0;
-                let sa = 1.0 - da;
                 let (br, bgc, bb) = (bg[0] as f32, bg[1] as f32, bg[2] as f32);
                 for px in out.chunks_exact_mut(4) {
-                    px[0] = (br * da + px[0] as f32 * sa) as u8;
-                    px[1] = (bgc * da + px[1] as f32 * sa) as u8;
-                    px[2] = (bb * da + px[2] as f32 * sa) as u8;
-                    px[3] = px[3].max(ba);
+                    let sa = px[3] as f32 / 255.0;
+                    if sa >= 1.0 {
+                        continue;
+                    }
+                    let inv = 1.0 - sa;
+                    let scale = da * inv;
+                    px[0] = (px[0] as f32 * sa + br * scale + 0.5) as u8;
+                    px[1] = (px[1] as f32 * sa + bgc * scale + 0.5) as u8;
+                    px[2] = (px[2] as f32 * sa + bb * scale + 0.5) as u8;
+                    px[3] = ((sa + da * inv) * 255.0 + 0.5) as u8;
                 }
             }
         }
@@ -490,14 +580,19 @@ pub extern "C" fn svgen_render(
             Ok(Ok(data)) => {
                 let len = data.len();
                 let boxed = Box::new(data);
-                *out_data = boxed.as_ptr() as *mut u8;
+                let raw = Box::into_raw(boxed) as *mut c_void;
+                // The handle is the owner: write it first so a caller that
+                // aborts between these stores can still free the buffer.
+                *out_handle = raw;
+                *out_data = boxed_ref_ptr(raw);
                 *out_len = len;
                 *out_w = width;
                 *out_h = height;
-                *out_handle = Box::into_raw(boxed) as *mut c_void;
+                set_last_error("");
                 0
             }
-            _ => {
+            Ok(Err(reason)) => {
+                set_last_error(reason);
                 *out_handle = std::ptr::null_mut();
                 *out_data = std::ptr::null_mut();
                 *out_len = 0;
@@ -505,8 +600,38 @@ pub extern "C" fn svgen_render(
                 *out_h = 0;
                 1
             }
+            Err(payload) => {
+                let text = panic_text(&payload);
+                set_last_error(&text);
+                *out_handle = std::ptr::null_mut();
+                *out_data = std::ptr::null_mut();
+                *out_len = 0;
+                *out_w = 0;
+                *out_h = 0;
+                2
+            }
         }
     }
+}
+
+/// Best-effort text out of a `catch_unwind` payload.
+fn panic_text(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        format!("panic: {}", s)
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        format!("panic: {}", s)
+    } else {
+        "panic".to_string()
+    }
+}
+
+/// The data pointer of a `Box<Vec<u8>>` we have already leaked as a raw handle.
+///
+/// # Safety
+/// `handle` must come from `Box::into_raw(Box::new(Vec<u8>))`.
+unsafe fn boxed_ref_ptr(handle: *mut c_void) -> *mut u8 {
+    let boxed = &*(handle as *const Vec<u8>);
+    boxed.as_ptr() as *mut u8
 }
 
 /// Free a buffer previously returned by `svgen_render`.
@@ -521,7 +646,11 @@ pub extern "C" fn svgen_free(handle: *mut c_void) {
 
 /// Encode animated GIF frames (each width*height*4 RGBA) into a GIF.
 ///
-/// `frames_ptr` points at an array of `n_frames` frame pointers.
+/// `frames_ptr` points at an array of `n_frames` frame pointers; every frame
+/// MUST hold at least `width * height * 4` bytes — there is no per-frame length
+/// in this ABI, so the caller is responsible for that (Python's `rslib` checks
+/// every frame before calling).
+///
 /// Returns 0 on success and stores the GIF bytes via the handle/data/len
 /// outputs (release with `svgen_free`).
 #[no_mangle]
@@ -536,18 +665,37 @@ pub extern "C" fn svgen_gif_encode(
     out_data: *mut *mut u8,
     out_len: *mut usize,
 ) -> i32 {
+    if out_handle.is_null() || out_data.is_null() || out_len.is_null() {
+        return -1;
+    }
+
     let result = panic::catch_unwind(|| -> Result<Vec<u8>, &'static str> {
         if n_frames == 0 || width == 0 || height == 0 {
             return Err("bad gif params");
         }
-        let frames: Vec<&[u8]> = unsafe {
-            (0..n_frames)
-                .map(|i| {
-                    let p = *frames_ptr.add(i as usize);
-                    slice::from_raw_parts(p, (width as usize) * (height as usize) * 4)
-                })
-                .collect()
-        };
+        if frames_ptr.is_null() {
+            return Err("no frames");
+        }
+        if width > GIF_MAX_DIMENSION || height > GIF_MAX_DIMENSION {
+            // The GIF header stores dimensions in 16 bits; silently truncating
+            // produces a file that claims the wrong size.
+            return Err("gif dimensions exceed 65535");
+        }
+        let pixels = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|v| v.checked_mul(4))
+            .ok_or("gif frame too large")?;
+        if pixels > MAX_PIXELS {
+            return Err("gif frame too large");
+        }
+        let mut frames: Vec<&[u8]> = Vec::with_capacity(n_frames as usize);
+        for i in 0..n_frames {
+            let p = unsafe { *frames_ptr.add(i as usize) };
+            if p.is_null() {
+                return Err("null gif frame");
+            }
+            frames.push(unsafe { slice::from_raw_parts(p, pixels) });
+        }
         Ok(gif::encode_gif(&frames, width as usize, height as usize, delay_cs as u16, loop_forever != 0))
     });
 
@@ -556,16 +704,26 @@ pub extern "C" fn svgen_gif_encode(
             Ok(Ok(data)) => {
                 let len = data.len();
                 let boxed = Box::new(data);
-                *out_data = boxed.as_ptr() as *mut u8;
+                let raw = Box::into_raw(boxed) as *mut c_void;
+                *out_handle = raw;
+                *out_data = boxed_ref_ptr(raw);
                 *out_len = len;
-                *out_handle = Box::into_raw(boxed) as *mut c_void;
+                set_last_error("");
                 0
             }
-            _ => {
+            Ok(Err(reason)) => {
+                set_last_error(reason);
                 *out_handle = std::ptr::null_mut();
                 *out_data = std::ptr::null_mut();
                 *out_len = 0;
                 1
+            }
+            Err(payload) => {
+                set_last_error(&panic_text(&payload));
+                *out_handle = std::ptr::null_mut();
+                *out_data = std::ptr::null_mut();
+                *out_len = 0;
+                2
             }
         }
     }
