@@ -213,7 +213,6 @@ export function menu(items, { x, y, align = "left" } = {}) {
   const el = document.createElement("div");
   el.className = "menu";
   el.setAttribute("role", "menu");
-
   for (const item of items) {
     if (!item) continue;
     if (item.separator) {
@@ -259,24 +258,39 @@ export function menu(items, { x, y, align = "left" } = {}) {
   el.style.top = `${Math.max(6, Math.min(y, window.innerHeight - rect.height - 6))}px`;
 
   const onDown = (evt) => {
+    // A newer menu owns the pointer; ignore this dismissed one entirely.
+    if (openMenu && openMenu.el !== el) return;
     if (!el.contains(evt.target)) closeMenu();
   };
   const onKey = (evt) => {
     if (evt.key === "Escape") closeMenu();
   };
-  setTimeout(() => {
+
+  let timer = 0;
+  let closed = false;
+
+  timer = setTimeout(() => {
+    timer = 0;
+    // If the menu went away before this ran, never attach the listeners — a
+    // late pair would survive on `document` for the rest of the session and
+    // close whatever menu is open on the next pointerdown, which is precisely
+    // how clicking a menu item ended up doing nothing.
+    if (closed) return;
     document.addEventListener("pointerdown", onDown, true);
     document.addEventListener("keydown", onKey, true);
   }, 0);
 
-  openMenu = {
-    el,
-    close() {
-      document.removeEventListener("pointerdown", onDown, true);
-      document.removeEventListener("keydown", onKey, true);
-      el.remove();
-    },
-  };
+  function close() {
+    if (closed) return;
+    closed = true;
+    if (timer) clearTimeout(timer);
+    document.removeEventListener("pointerdown", onDown, true);
+    document.removeEventListener("keydown", onKey, true);
+    el.remove();
+    if (openMenu && openMenu.el === el) openMenu = null;
+  }
+
+  openMenu = { el, close };
   return openMenu;
 }
 

@@ -257,10 +257,22 @@ cd backend
 python tests/test_pipeline.py          # 34 项后端检查（烘焙、引擎、格式、边界、回归）
 python tests/test_pipeline.py --fast   # 跳过较慢的视频渲染
 python tests/test_studio_ui.py         # 真实浏览器端到端（需 playwright + 已启动的服务器）
+
+node frontend/tests/units.mjs          # 38 项前端纯函数单元测试（不需要浏览器）
 ```
 
-`test_studio_ui.py` 会用真实工具栏画图、按 `K` 打关键帧、然后通过导出面板产出
-PNG / GIF / SVG 并在磁盘上校验（含 GIF 帧数）。它同时断言**浏览器控制台零报错**。
+三层各有分工，缺一层就会漏 bug：
+
+- **单元测试**（`frontend/tests/units.mjs`）秒级跑完，定位到具体函数。缩放的几何、
+  贝塞尔求解、路径解析、颜色转换都在这里验。
+- **端到端**（`test_studio_ui.py`）用**真实鼠标事件**驱动：画图、打关键帧、拖缩放柄、
+  在右键菜单里点复制/再制/删除、导出 PNG/GIF/SVG。它断言**画布像素**和
+  **浏览器控制台零报错**。
+- **后端**（`test_pipeline.py`）覆盖烘焙、各引擎一致性、格式与输入校验。
+
+三个真实教训，都变成了回归测试：只数元素不数像素，会漏掉"笔画画到画布外三万里"；
+用 `element.click()` 而不是真鼠标，会漏掉"幽灵监听器在 mouseup 前关掉菜单"；
+手搓测试数据而不是走真实构造函数，会漏掉"工具少传了一个字段"。
 
 覆盖到的关键回归：SMIL 烘焙真的在动、`fill="remove"` 之后恢复原值、
 有限 `repeatCount` 会循环、透明度是渐变而不是硬切、

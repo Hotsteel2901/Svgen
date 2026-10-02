@@ -22,7 +22,7 @@ import {
 } from "../core/elements.js";
 import { HANDLES, handlePoint, worldCorners } from "../core/render.js";
 import { clamp } from "../core/util.js";
-import { rotatePoint, inversePoint } from "../core/transform.js";
+import { computeResize, createResizeGesture } from "../core/resize.js";
 
 const HANDLE_CURSOR = {
   nw: "nwse-resize", se: "nwse-resize",
@@ -235,36 +235,21 @@ export class ToolController {
     if (handle && selected.length === 1) {
       const el = selected[0];
       const r = this.stage.renderer.resolve(el, doc.time);
-      const bounds = localBounds(r);
-      const base = {
-        el,
-        start: { x: p.sceneX, y: p.sceneY },
-        rotation: r.rotation || 0,
-        scaleX: r.scaleX ?? 1,
-        scaleY: r.scaleY ?? 1,
-        x: r.x,
-        y: r.y,
-        w: r.w,
-        h: r.h,
-        bounds,
-        label: handle === "rotate" ? "rotate" : "resize",
-      };
       if (handle === "rotate") {
         this.gesture = {
-          ...base,
           kind: "rotate",
+          label: "rotate",
+          el,
+          x: r.x,
+          y: r.y,
+          start: { x: p.sceneX, y: p.sceneY },
           startAngle: Math.atan2(p.sceneY - r.y, p.sceneX - r.x) * (180 / Math.PI),
-          origRotation: el.rotation,
+          origRotation: el.rotation || 0,
         };
       } else {
-        // The anchor is the opposite corner / edge, in design space.
-        const anchorLocal = anchorFor(handle, bounds);
-        const anchorWorld = toScene(
-          { ...r, rotation: r.rotation || 0, scaleX: r.scaleX ?? 1, scaleY: r.scaleY ?? 1 },
-          anchorLocal[0],
-          anchorLocal[1]
-        );
-        this.gesture = { ...base, kind: "resize", handle, anchorLocal, anchorWorld };
+        // Built by the shared factory so the tool and the unit tests can never
+        // disagree about the shape of this record.
+        this.gesture = createResizeGesture(el, r, handle);
       }
       this.scene.live();
       return;
@@ -337,39 +322,17 @@ export class ToolController {
 
   _resize(g, p) {
     const el = g.el;
-    const shift = p.shift;
-    const alt = p.alt;
 
-    // Pointer in the element's unrotated, unscaled design space.
-    const local = inversePoint(
-      { x: g.x, y: g.y, rotation: g.rotation, scaleX: g.scaleX, scaleY: g.scaleY },
-      p.sceneX,
-      p.sceneY
-    );
-
-    const [ax, ay] = g.anchorLocal;
-    let w = Math.abs(local.x - ax);
-    let h = Math.abs(local.y - ay);
-    const horizontal = g.handle.includes("w") || g.handle.includes("e");
-    const vertical = g.handle.includes("n") || g.handle.includes("s");
-
-    if (!horizontal) w = g.bounds.w;
-    if (!vertical) h = g.bounds.h;
-
-    if (shift && horizontal && vertical && g.bounds.w > 0 && g.bounds.h > 0) {
-      const ratio = g.bounds.h / g.bounds.w;
-      const scaled = Math.max(w, h / ratio);
-      w = scaled;
-      h = scaled * ratio;
-    }
-
-    w = this.snap(Math.max(1, w));
-    h = this.snap(Math.max(el.type === "line" || el.type === "arrow" ? 0 : 1, h));
+    const next = computeResize(g, { x: p.sceneX, y: p.sceneY }, {
+      snap: (v) => this.snap(v),
+      proportional: p.shift,
+      minSize: 1,
+    });
 
     if (el.type === "path" && el.points.length) {
-      // Paths keep their shape because applySize scales the stored points.
-      const nw = Math.max(1, w);
-      const nh = Math.max(1, h);
+      // Paths keep their shape because the stored points are scaled with them.
+      const nw = Math.max(1, next.w);
+      const nh = Math.max(1, next.h);
       const sx = nw / Math.max(1e-6, el.w);
       const sy = nh / Math.max(1e-6, el.h);
       this.scene.live(() => {
@@ -383,23 +346,14 @@ export class ToolController {
       });
     } else {
       this.scene.live(() => {
-        el.w = w;
-        el.h = el.type === "line" || el.type === "arrow" ? 0 : h;
+        el.w = next.w;
+        el.h = next.h;
         el._rev = (el._rev | 0) + 1;
       });
     }
 
-    // Re-place so the anchor stays pinned in world space.
-    const newBounds = localBounds(el);
-    const newAnchorLocal = anchorFor(g.handle, newBounds);
-    const sx = el.scaleX ?? 1;
-    const sy = el.scaleY ?? 1;
-    const rotated = rotatePoint(newAnchorLocal[0] * sx, newAnchorLocal[1] * sy, el.rotation || 0);
-    const nx = g.anchorWorld[0] - rotated[0];
-    const ny = g.anchorWorld[1] - rotated[1];
-
     this.scene.live(() => {
-      setPosition(el, nx, ny, this.scene.doc.time);
+      setPosition(el, next.x, next.y, this.scene.doc.time);
       el._rev = (el._rev | 0) + 1;
     });
 
@@ -797,26 +751,6 @@ function simplifyPoints(points, tolerance) {
   return points.filter((_, i) => keep[i]);
 }
 
-function anchorFor(handle, bounds, alreadyCentred = false) {
-  const left = bounds.x;
-  const right = bounds.x + bounds.w;
-  const top = bounds.y;
-  const bottom = bounds.y + bounds.h;
-  const midX = (left + right) / 2;
-  const midY = (top + bottom) / 2;
-  void alreadyCentred;
-  switch (handle) {
-    case "nw": return [right, bottom];
-    case "ne": return [left, bottom];
-    case "se": return [left, top];
-    case "sw": return [right, top];
-    case "n": return [midX, bottom];
-    case "s": return [midX, top];
-    case "e": return [left, midY];
-    case "w": return [right, midY];
-    default: return [midX, midY];
-  }
-}
 
 /** Set x/y, honouring existing keyframes (shift keys or move the one at t). */
 function applyTranslation(el, nx, ny, t, item) {

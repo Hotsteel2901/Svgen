@@ -1,12 +1,31 @@
 /** Small, dependency-free helpers shared across the studio. */
 
-export const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+/**
+ * Clamp, with a NaN guard.
+ *
+ * `NaN < lo` and `NaN > hi` are both false, so a plain clamp passes NaN
+ * straight through and poisons whatever it touches — which is exactly how a
+ * bad gesture once turned a shape into NaN and made it vanish. A non-finite
+ * input now yields the lower bound, which is the safe end for every caller
+ * here (sizes, opacity, zoom).
+ */
+export const clamp = (v, lo, hi) => {
+  // NaN compares false both ways, so a plain clamp lets it straight through.
+  if (Number.isNaN(v)) return lo;
+  return v < lo ? lo : v > hi ? hi : v;
+};
 
 export const lerp = (a, b, t) => a + (b - a) * t;
 
 export function round(v, dp = 3) {
+  if (!Number.isFinite(v)) return 0;
   const f = 10 ** dp;
-  return Math.round(v * f) / f;
+  const scaled = v * f;
+  // Binary floats cannot hold most decimal halves exactly (1.005 * 100 is
+  // 100.49999999999999), so nudge by a relative epsilon before rounding. Without
+  // it a field showing "1" for a value of 1.005 would commit 1 on blur.
+  const nudged = scaled + Math.sign(scaled) * Math.abs(scaled) * Number.EPSILON;
+  return Math.round(nudged) / f;
 }
 
 /** Compact number formatting: 4 · 4.5 · -12.25 — never exponent soup. */
@@ -94,14 +113,16 @@ export function escapeXML(s) {
     .replace(/'/g, "&apos;");
 }
 
-/** Parse "a,b" / "a b" / "a,b c" numeric lists the way SVG does. */
+/**
+ * Pull every number out of a string, the way the backend's `parse_float_list`
+ * does. Commas, whitespace, semicolons and stray junk are all tolerated, so an
+ * SVG that the Python side accepts is never rejected by the front-end.
+ */
 export function parseNumbers(str) {
-  if (!str) return [];
-  return String(str)
-    .trim()
-    .split(/[\s,]+/)
-    .map(Number)
-    .filter((n) => Number.isFinite(n));
+  if (str === null || str === undefined) return [];
+  const matches = String(str).match(/[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:[eE][-+]?\d+)?/g);
+  if (!matches) return [];
+  return matches.map(Number).filter((n) => Number.isFinite(n));
 }
 
 export function downloadBlob(blob, filename) {

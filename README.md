@@ -279,12 +279,27 @@ cd backend
 python tests/test_pipeline.py          # 34 backend checks (baking, engines, formats, edges, regressions)
 python tests/test_pipeline.py --fast   # skips the slower video renders
 python tests/test_studio_ui.py         # real browser end-to-end (needs playwright + a running server)
+
+node frontend/tests/units.mjs          # 38 pure-function unit checks (no browser)
 ```
 
-`test_studio_ui.py` draws with the actual toolbar, adds keyframes with `K`, then
-produces a PNG, an animated GIF and an SVG through the Export panel and verifies
-each file on disk (including the GIF frame count). It also asserts **zero
-browser-console errors**.
+Three layers, and each one has caught something the others could not:
+
+- **Units** (`frontend/tests/units.mjs`) run in milliseconds and name the exact
+  function. Resize geometry, the bezier solver, path parsing and colour
+  conversion are proved here.
+- **End-to-end** (`test_studio_ui.py`) drives **real mouse events**: draw,
+  keyframe, drag a resize handle, click Copy/Duplicate/Delete in the context
+  menu, export PNG/GIF/SVG. It asserts on **canvas pixels** and on **zero
+  browser-console errors**.
+- **Backend** (`test_pipeline.py`) covers baking, engine agreement, formats and
+  input validation.
+
+Three real lessons, each now a regression test: counting elements instead of
+pixels hides a stroke drawn thirty thousand units off-canvas; `element.click()`
+instead of a real mouse hides a stray listener that dismisses a menu before
+mouseup; hand-built test data instead of the real constructor hides a gesture
+record missing a field.
 
 Regressions covered: SMIL frames actually differ, `fill="remove"` restores the
 base value, a finite `repeatCount` loops, opacity fades instead of cutting, an

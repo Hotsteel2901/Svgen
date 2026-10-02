@@ -170,8 +170,13 @@ export class Stage {
       // A right-click mid-gesture aborts it, like every other editor.
       if (this.tools?.gesture || this.tools?.penPoints) {
         this.tools.cancelGesture();
+        evt.__svgenHandled = true;
         return;
       }
+      // Claim the event: the input-capture layer must not open a second menu
+      // for the same right-click, because a superseded menu leaves a stray
+      // pointerdown listener behind that closes the live one.
+      evt.__svgenHandled = true;
       this.app?.onContextMenu?.(evt, this._pointerEvent(evt));
     });
     canvas.addEventListener("dblclick", (evt) => this.tools?.onDoubleClick?.(evt, this));

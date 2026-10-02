@@ -32,6 +32,39 @@ def check(name, fn):
         results.append(("FAIL", name, "%s: %s" % (type(exc).__name__, exc)))
 
 
+def click_menu_item(page, text):
+    """Click a menu entry with a REAL mouse press.
+
+    `element.click()` dispatches a synthetic click and skips the whole pointer
+    pipeline, so it cannot see a menu that a stray listener dismisses between
+    mousedown and mouseup. Every menu interaction in this suite goes through
+    real coordinates for exactly that reason.
+    """
+    box = page.evaluate(
+        """(needle) => {
+          const items = [...document.querySelectorAll('.menu .menu-item')];
+          const hit = items.find(b => b.textContent.includes(needle));
+          if (!hit) return null;
+          const r = hit.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2, disabled: hit.disabled };
+        }""",
+        text,
+    )
+    assert box is not None, "no menu item containing %r" % text
+    assert not box["disabled"], "menu item %r is disabled" % text
+    page.mouse.move(box["x"], box["y"])
+    page.wait_for_timeout(60)
+    page.mouse.click(box["x"], box["y"])
+    page.wait_for_timeout(400)
+    return box
+
+
+def menu_labels(page):
+    return page.evaluate(
+        "() => [...document.querySelectorAll('.menu .menu-item')].map(b => b.textContent.trim())"
+    )
+
+
 def main():
     errors = []
     with sync_playwright() as p:
@@ -200,66 +233,83 @@ def main():
         )
         page.wait_for_timeout(250)
         page.mouse.click(shape["x"], shape["y"], button="right")
-        page.wait_for_timeout(350)
-        shape_menu = page.evaluate(
-            "() => [...document.querySelectorAll('.menu-item')].map(b => b.textContent.trim())"
-        )
+        page.wait_for_timeout(400)
+        shape_menu = menu_labels(page)
         check("input: shape menu", lambda: f"{len(shape_menu)} items")
         for wanted in ("复制", "粘贴", "再制", "删除", "移到最前"):
             assert any(wanted in i for i in shape_menu), f"shape menu missing {wanted}: {shape_menu}"
 
         n0 = page.evaluate("() => window.__svgen.scene.doc.elements.length")
-        page.evaluate(
-            """() => [...document.querySelectorAll('.menu-item')]
-                 .find(b => b.textContent.includes('再制')).click()"""
-        )
-        page.wait_for_timeout(350)
+        click_menu_item(page, "再制")
         n1 = page.evaluate("() => window.__svgen.scene.doc.elements.length")
-        check("menu: duplicate works", lambda: f"{n0} -> {n1}")
-        assert n1 == n0 + 1, "the duplicate menu entry did nothing"
+        check("menu: duplicate (real mouse) works", lambda: f"{n0} -> {n1}")
+        assert n1 == n0 + 1, "a real click on the duplicate entry did nothing"
 
         page.mouse.click(shape["x"], shape["y"], button="right")
-        page.wait_for_timeout(300)
-        page.evaluate(
-            """() => [...document.querySelectorAll('.menu-item')]
-                 .find(b => b.textContent.includes('复制')).click()"""
-        )
-        page.wait_for_timeout(250)
+        page.wait_for_timeout(350)
+        click_menu_item(page, "复制")
         has_clip = page.evaluate("() => window.__svgen.hasClipboard()")
         page.mouse.click(shape["x"], shape["y"], button="right")
-        page.wait_for_timeout(300)
-        page.evaluate(
-            """() => [...document.querySelectorAll('.menu-item')]
-                 .find(b => b.textContent.includes('粘贴')).click()"""
-        )
         page.wait_for_timeout(350)
+        click_menu_item(page, "粘贴")
         n2 = page.evaluate("() => window.__svgen.scene.doc.elements.length")
-        check("menu: copy + paste work", lambda: f"clipboard={has_clip}, {n1} -> {n2}")
-        assert has_clip and n2 == n1 + 1, "copy/paste from the menu did nothing"
+        check("menu: copy + paste (real mouse) work", lambda: f"clipboard={has_clip}, {n1} -> {n2}")
+        assert has_clip and n2 == n1 + 1, "copy/paste by real click did nothing"
 
         page.mouse.click(shape["x"], shape["y"], button="right")
-        page.wait_for_timeout(300)
-        page.evaluate(
-            """() => [...document.querySelectorAll('.menu-item')]
-                 .find(b => b.textContent.includes('删除')).click()"""
-        )
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(350)
+        click_menu_item(page, "删除")
         dialog = page.evaluate(
             "() => ({ open: !!document.querySelector('.scrim'), btns: [...document.querySelectorAll('.modal-foot .btn')].map(b => b.textContent) })"
         )
-        check("menu: delete asks first", lambda: json.dumps(dialog, ensure_ascii=False))
-        assert dialog["open"], "delete from the menu did not open the confirmation"
+        check("menu: delete asks first (real mouse)", lambda: json.dumps(dialog, ensure_ascii=False))
+        assert dialog["open"], "delete by real click did not open the confirmation"
         page.keyboard.press("Escape")
         page.wait_for_timeout(250)
+
+        # --- resizing a real shape with a real drag -------------------------
+        resize = page.evaluate(
+            """() => {
+              const a = window.__svgen;
+              a.setTool('select');
+              a.scene.mutate('clear', d => { d.elements = []; d.selection = []; });
+              const el = a.newElement('rect');
+              el.x = 640; el.y = 360; el.w = 300; el.h = 200; el.fill = '#cbff4d';
+              a.scene.add(el);
+              const s = a.stage, r = s.host.getBoundingClientRect();
+              const at = (x, y) => ({ x: r.left + s.view.panX + x * s.view.zoom,
+                                       y: r.top + s.view.panY + y * s.view.zoom });
+              return { id: el.id, se: at(790, 460), before: { x: el.x, y: el.y, w: el.w, h: el.h } };
+            }"""
+        )
+        page.wait_for_timeout(250)
+        page.mouse.move(resize["se"]["x"], resize["se"]["y"])
+        page.wait_for_timeout(150)
+        page.mouse.down()
+        for i in range(10):
+            page.mouse.move(resize["se"]["x"] + i * 9, resize["se"]["y"] + i * 6)
+            page.wait_for_timeout(25)
+        page.mouse.up()
+        page.wait_for_timeout(350)
+        after = page.evaluate(
+            "(id) => { const e = window.__svgen.scene.element(id); return e ? { x: e.x, y: e.y, w: e.w, h: e.h } : null; }",
+            resize["id"],
+        )
+        check("resize: drag grows the shape", lambda: f"{resize['before']} -> {after}")
+        assert after, "the element disappeared while resizing"
+        for key in ("x", "y", "w", "h"):
+            assert isinstance(after[key], (int, float)) and after[key] == after[key], \
+                f"resize produced {key}={after[key]}"
+            assert abs(after[key]) < 1e6, f"resize sent {key} to {after[key]}"
+        assert after["w"] > resize["before"]["w"], "the shape did not actually grow"
+        check("resize: stays finite and visible", lambda: f"w={after['w']}, h={after['h']}")
 
         # Right-clicking empty canvas while something is selected must still
         # offer the selection actions — otherwise the menu looks dead.
         page.evaluate("() => { const a = window.__svgen; a.scene.select(a.scene.doc.elements[0].id); }")
         page.mouse.click(950, 140, button="right")
-        page.wait_for_timeout(350)
-        both = page.evaluate(
-            "() => [...document.querySelectorAll('.menu-item')].map(b => b.textContent.trim())"
-        )
+        page.wait_for_timeout(400)
+        both = menu_labels(page)
         check("menu: canvas menu keeps selection actions", lambda: f"{len(both)} items")
         for wanted in ("删除", "填充画布"):
             assert any(wanted in i for i in both), f"menu missing {wanted}: {both}"
