@@ -69,8 +69,10 @@ class _Log:
         self.level = level
 
     # ---- output -----------------------------------------------------------
-    def _emit(self, tag, color, msg):
-        if not self.enabled:
+    def _emit(self, tag, color, msg, force=False):
+        # Errors are never suppressed: the toggle quiets the chatter, it must
+        # not swallow the failures you actually need to see.
+        if not self.enabled and not force:
             return
         ts = time.strftime("%H:%M:%S")
         prefix = "[%s %s] " % (ts, tag)
@@ -90,8 +92,7 @@ class _Log:
             self._emit("WARN", "33", msg)
 
     def error(self, msg):
-        if self.level >= 0:
-            self._emit("ERROR", "31", msg)
+        self._emit("ERROR", "31", msg, force=True)
 
     def debug(self, msg):
         if self.level >= 2:

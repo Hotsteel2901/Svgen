@@ -114,7 +114,9 @@ class PlatformFS:
             return fh.read()
 
     def write_text(self, path: str, text: str):
-        os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with open(path, "w", encoding="utf-8", newline="") as fh:
             fh.write(text)
 
@@ -173,6 +175,8 @@ _CHROME_CANDIDATES = {
 
 
 def find_executable(names, extra_paths=()):
+    """First hit on PATH, then the explicit candidate paths, then a Windows
+    glob sweep of the Program Files trees."""
     for name in names:
         found = shutil.which(name)
         if found:
@@ -187,23 +191,33 @@ def find_executable(names, extra_paths=()):
             for match in glob.glob(pattern):
                 if os.path.isfile(match):
                     return match
-    for p in extra_paths:
-        if shutil.which(p):
-            return shutil.which(p)
     return None
 
 
-def find_ffmpeg():
-    return find_executable(["ffmpeg"])
+# Executable lookups shell out to `shutil.which` (a PATH walk) and glob the
+# Program Files trees, and `capabilities()` asks for each of them two or three
+# times per call.  Memoize the answers; pass refresh=True to re-probe.
+_LOOKUP_CACHE = {}
 
 
-def find_chrome():
+def _cached_lookup(key, probe, refresh=False):
+    if refresh or key not in _LOOKUP_CACHE:
+        _LOOKUP_CACHE[key] = probe()
+    return _LOOKUP_CACHE[key]
+
+
+def find_ffmpeg(refresh=False):
+    return _cached_lookup("ffmpeg", lambda: find_executable(["ffmpeg"]), refresh)
+
+
+def find_chrome(refresh=False):
     key = "win" if WINDOWS else ("mac" if MACOS else "linux")
-    return find_executable([], _CHROME_CANDIDATES.get(key, []))
+    return _cached_lookup(
+        "chrome", lambda: find_executable([], _CHROME_CANDIDATES.get(key, [])), refresh)
 
 
-def find_firefox():
-    """Locate a Firefox / Gecko binary for headless rendering."""
+def _locate_firefox():
+    """Full Firefox hunt, cached by find_firefox()."""
     candidates = []
     if WINDOWS:
         candidates += [
@@ -224,6 +238,11 @@ def find_firefox():
     else:
         candidates += ["/usr/bin/firefox", "/usr/bin/firefox-esr", "/snap/bin/firefox"]
     return find_executable(["firefox", "firefox-esr"], candidates)
+
+
+def find_firefox(refresh=False):
+    """Locate a Firefox / Gecko binary for headless rendering."""
+    return _cached_lookup("firefox", _locate_firefox, refresh)
 
 
 def find_browsers():
