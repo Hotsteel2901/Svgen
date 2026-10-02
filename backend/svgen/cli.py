@@ -78,28 +78,46 @@ def cmd_render(args):
         input_name = args.input
 
     fmt = args.format
+    verbose = not getattr(args, "quiet", False)
+
+    def progress(stage, done=0, total=0):
+        if not verbose or not sys.stderr.isatty():
+            return
+        if total:
+            sys.stderr.write("\r  %-9s %d/%d" % (stage, done, total))
+        else:
+            sys.stderr.write("\r  %-9s …" % stage)
+        sys.stderr.flush()
+
     if fmt in renderer.SUPPORTED_VIDEO:
         data = renderer.render_video(svg_text, fmt, args.width, args.height,
                                      args.duration, args.fps, args.background,
-                                     args.engine, args.quality)
+                                     args.engine, args.quality, progress)
     else:
         data = renderer.render_static(svg_text, fmt, args.width, args.height,
-                                      args.background, args.engine, args.quality)
+                                      args.background, args.engine, args.quality,
+                                      progress)
+    if verbose and sys.stderr.isatty():
+        sys.stderr.write("\r" + " " * 40 + "\r")
 
     out = args.output or platform.guess_output_path(input_name, fmt)
     fs.write_bytes(out, data)
-    print("Wrote %s (%d bytes) [engine: %s]" % (out, len(data), "ffmpeg+chrome" if fmt in renderer.SUPPORTED_VIDEO else args.engine))
+    print("Wrote %s (%d bytes, %s)" % (out, len(data), fmt))
     return 0
 
 
 def cmd_serve(args):
-    from . import api
+    from . import api, jobs
+
     if args.logs is not None:
         log.set_enabled(args.logs.lower() == "on")
     host = args.host or "127.0.0.1"
-    port = args.port
-    server = api.make_server(host, port, args.static)
-    url = "http://%s:%d" % (host, port)
+    try:
+        server = api.make_server(host, args.port, args.static)
+    except OSError as exc:
+        print("Error: %s" % exc, file=sys.stderr)
+        return 1
+    url = "http://%s:%d" % (host, server.port)
     print("SVGen studio running at %s" % url)
     print("Press Ctrl+C to stop.")
     if args.open:
@@ -108,12 +126,33 @@ def cmd_serve(args):
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopped.")
+    finally:
+        jobs.manager().shutdown()
+        server.server_close()
+    return 0
 
 
 def cmd_logs(args):
     on = args.state.lower() == "on"
     log.set_enabled(on)
     print("Logging %s." % ("enabled" if on else "disabled"))
+
+
+def cmd_engines(args):
+    report = renderer.engine_report()
+    print("SVGen render engines")
+    print("=" * 46)
+    print("  default chain : %s" % " -> ".join(report["chain"]))
+    print("  still formats : %s" % ", ".join(report["formats"]["still"]))
+    for name, ok in report["formats"]["video"].items():
+        print("  video %-5s   : %s" % (name, "available" if ok else "unavailable (needs ffmpeg)"))
+    print("  tools:")
+    for name, path in report["tools"].items():
+        if name == "pillow":
+            print("    %-8s: %s" % (name, "yes" if path else "no"))
+        else:
+            print("    %-8s: %s" % (name, path or "not found"))
+    return 0
 
 
 def cmd_build_rs(args):
@@ -188,6 +227,9 @@ def main(argv=None):
     p_logs = sub.add_parser("logs", help="persist the logging on/off state")
     p_logs.add_argument("state", choices=["on", "off"])
     p_logs.set_defaults(func=cmd_logs)
+
+    p_eng = sub.add_parser("engines", help="show the render engine chain and tool availability")
+    p_eng.set_defaults(func=cmd_engines)
 
     p_build = sub.add_parser("build-rs", help="compile the native Rust renderer (needs cargo)")
     p_build.add_argument("--debug", action="store_true", help="build without optimizations")
