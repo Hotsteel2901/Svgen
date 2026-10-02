@@ -1,0 +1,437 @@
+/* ==========================================================================
+   Aperture — Layer 1/3: timeline. Transport, ruler, tracks, keyframes.
+   ========================================================================== */
+
+.time {
+  grid-area: time;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+  background: var(--surface-1);
+  border-top: 1px solid var(--line);
+  z-index: 22;
+}
+
+.time.collapsed {
+  --h-timeline: 0px;
+}
+
+/* grabs to resize the timeline panel */
+.time-grip {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: ns-resize;
+  z-index: 5;
+}
+
+.time-grip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 44px;
+  height: 3px;
+  margin-left: -22px;
+  border-radius: var(--r-full);
+  background: var(--line-strong);
+  opacity: 0;
+  transition: opacity var(--dur-2) var(--ease);
+}
+
+.time-grip:hover::after {
+  opacity: 1;
+}
+
+.time-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  height: 34px;
+  padding: 0 var(--s2);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  flex: none;
+}
+
+.transport button {
+  width: 24px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-xs);
+  color: var(--text-mute);
+  transition: all var(--dur-1) var(--ease);
+}
+
+.transport button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.transport button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.transport button.play {
+  width: 30px;
+  color: var(--text);
+}
+
+.transport button.play[data-playing="true"] {
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+
+.transport button[aria-pressed="true"] {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.timecode {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  flex: none;
+  font-family: var(--font-num);
+  font-size: var(--fs-xs);
+  color: var(--text-mute);
+}
+
+.timecode .field {
+  height: 24px;
+  padding: 0 6px;
+}
+
+.timecode .field input {
+  width: 54px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.timecode .field.dur input {
+  width: 44px;
+}
+
+.timecode .slash {
+  color: var(--text-faint);
+}
+
+.time-bar .spacer {
+  flex: 1;
+  min-width: var(--s2);
+}
+
+.time-bar .tools {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  flex: none;
+}
+
+/* ---------------------------------------------------------------- body */
+.time-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.tl-labels {
+  flex: none;
+  width: 188px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: var(--surface-1);
+  z-index: 3;
+  overflow: hidden;
+}
+
+.tl-labels-head {
+  flex: none;
+  height: var(--h-ruler);
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 0 var(--s2) 0 var(--s3);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+
+.tl-labels-scroll {
+  flex: 1;
+  overflow: hidden;
+}
+
+.tl-labels-inner {
+  display: flex;
+  flex-direction: column;
+}
+
+.tl-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 var(--s2) 0 var(--s3);
+  border-bottom: 1px solid var(--line-faint);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.tl-label:hover {
+  background: var(--hover);
+}
+
+.tl-label.selected {
+  background: var(--brand-soft);
+  color: var(--text);
+}
+
+.tl-label.sub {
+  height: 22px;
+  padding-left: 34px;
+  color: var(--text-mute);
+  font-size: var(--fs-xs);
+}
+
+.tl-label .tw {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-xs);
+  color: var(--text-faint);
+}
+
+.tl-label .tw:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.tl-label .tw svg {
+  width: 11px;
+  height: 11px;
+  transition: transform var(--dur-2) var(--ease);
+}
+
+.tl-label.open .tw svg {
+  transform: rotate(90deg);
+}
+
+.tl-label .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-label .pdot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.tl-label .eye {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-xs);
+  color: var(--text-faint);
+  opacity: 0.7;
+}
+
+.tl-label .eye:hover {
+  background: var(--hover);
+  opacity: 1;
+  color: var(--text);
+}
+
+.tl-label .eye svg {
+  width: 12px;
+  height: 12px;
+}
+
+.tl-label .eye.off {
+  opacity: 0.32;
+}
+
+/* ---------------------------------------------------------------- grid */
+.tl-scroll {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.tl-ruler {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: block;
+  width: 100%;
+  height: var(--h-ruler);
+  border-bottom: 1px solid var(--line);
+  cursor: ew-resize;
+  background: var(--surface-1);
+}
+
+.tl-rows {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding-bottom: var(--s6);
+}
+
+.tl-row {
+  position: relative;
+  height: 26px;
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.tl-row.sub {
+  height: 22px;
+}
+
+.tl-row.selected {
+  background: color-mix(in srgb, var(--brand) 5%, transparent);
+}
+
+.tl-row:hover {
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+
+.tl-row::after {
+  /* subtle frame guides */
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(90deg, var(--line-faint) 1px, transparent 1px);
+  background-size: var(--tl-step, 80px) 100%;
+  opacity: 0.7;
+}
+
+.tl-bar {
+  position: absolute;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, currentColor 24%, transparent);
+  pointer-events: none;
+}
+
+.tl-key {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 2px;
+  transform: rotate(45deg);
+  background: currentColor;
+  border: 1px solid var(--surface-1);
+  cursor: grab;
+  transition: transform var(--dur-1) var(--ease);
+  z-index: 2;
+}
+
+.tl-key:hover {
+  transform: rotate(45deg) scale(1.28);
+}
+
+.tl-key.sel {
+  box-shadow: 0 0 0 2px var(--surface-1), 0 0 0 3px currentColor;
+}
+
+.tl-key.dragging {
+  cursor: grabbing;
+  transform: rotate(45deg) scale(1.45);
+  z-index: 6;
+}
+
+.tl-key.ease::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 1px;
+  background: var(--surface-1);
+}
+
+.tl-seg {
+  position: absolute;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
+  background: color-mix(in srgb, currentColor 45%, transparent);
+  pointer-events: none;
+}
+
+.tl-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--brand);
+  pointer-events: none;
+  z-index: 5;
+  will-change: transform;
+}
+
+.tl-playhead::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -4.5px;
+  width: 10px;
+  height: 10px;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  background: var(--brand);
+}
+
+.tl-marquee {
+  position: absolute;
+  border: 1px solid var(--brand);
+  background: var(--brand-soft);
+  border-radius: var(--r-xs);
+  pointer-events: none;
+  z-index: 6;
+}
+
+.tl-empty {
+  padding: var(--s6);
+  text-align: center;
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+}
