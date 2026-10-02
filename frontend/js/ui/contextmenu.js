@@ -7,6 +7,7 @@
  */
 
 import { menu, h, toast } from "./shell.js";
+import { openColorPopover } from "./colorpopover.js";
 import { icon } from "./icons.js";
 import { t } from "../i18n/index.js";
 
@@ -28,7 +29,11 @@ export function openCanvasMenu(app, evt, pointer, info = {}) {
     app.scene.select(hit.id);
     app.onSelectionChanged();
   }
-  const context = hit ? app.scene.selectedElements() : [];
+  // The menu acts on the selection whenever there is one, so right-clicking
+  // slightly off a shape never hides Copy / Delete behind a menu that only
+  // talks about the canvas. Canvas-only actions are added on top when the
+  // pointer really is over empty space.
+  const context = app.scene.selectedElements();
   const onCanvas = !hit;
 
   const items = [];
@@ -53,7 +58,7 @@ export function openCanvasMenu(app, evt, pointer, info = {}) {
   if (has) {
     items.push(
       { label: t("edit.copy"), icon: "copy", shortcut: "Ctrl+C", onClick: () => app.copySelection() },
-      { label: t("edit.paste"), icon: "file", shortcut: "Ctrl+V", disabled: !app.hasClipboard(), onClick: () => app.paste() },
+      { label: t("edit.paste"), icon: "file", shortcut: "Ctrl+V", onClick: () => app.paste() },
       { label: t("edit.duplicate"), icon: "duplicate", shortcut: "Ctrl+D", onClick: () => app.duplicateSelection() },
       {
         label: t("edit.delete"),
@@ -128,9 +133,8 @@ export function openCanvasMenu(app, evt, pointer, info = {}) {
     }
   } else {
     items.push(
-      { label: t("edit.paste"), icon: "file", shortcut: "Ctrl+V", disabled: !app.hasClipboard(), onClick: () => app.paste() },
+      { label: t("edit.paste"), icon: "file", shortcut: "Ctrl+V", onClick: () => app.paste() },
       { label: t("edit.selectAll"), icon: "group", shortcut: "Ctrl+A", onClick: () => app.selectAll() },
-      { label: t("edit.deselect"), icon: "x", onClick: () => app.scene.clearSelection() },
       { separator: true },
       {
         label: t("insp.addText"),
@@ -294,20 +298,27 @@ export function openBrushMenu(app, anchor) {
         const chip = h("span", { class: "swatch" }, [h("i")]);
         const sync = () => {
           chip.querySelector("i").style.background = app.paint.stroke || "transparent";
+          chip.classList.toggle("none", !app.paint.stroke);
         };
         sync();
         chip.addEventListener("click", () => {
-          const input = h("input", { type: "color", value: app.paint.stroke || "#edeff3" });
-          input.style.cssText = "position:fixed;left:-9999px";
-          document.body.appendChild(input);
-          input.addEventListener("input", () => {
-            app.setStroke(input.value);
-            sync();
-            paintPreview();
-            app.rail?.syncPaint();
+          openColorPopover({
+            anchor: chip,
+            value: app.paint.stroke,
+            title: t("brush.colour"),
+            onInput: (color) => {
+              app.setStroke(color);
+              sync();
+              paintPreview();
+              app.rail?.syncPaint();
+            },
+            onCommit: (color) => {
+              app.setStroke(color);
+              sync();
+              paintPreview();
+              app.rail?.syncPaint();
+            },
           });
-          input.addEventListener("change", () => input.remove());
-          input.click();
         });
         return chip;
       })(),

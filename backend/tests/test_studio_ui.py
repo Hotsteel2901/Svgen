@@ -9,6 +9,7 @@ Requires: playwright (python -m pip install playwright && playwright install chr
 """
 
 import json
+import math
 import os
 import struct
 import sys
@@ -156,7 +157,9 @@ def main():
         # --- input capture: the studio owns the right-click ---------------
         page.click('.dock-tab[data-tab="inspector"]')
         page.wait_for_timeout(200)
-        # Right-click on EMPTY canvas (the shape sits around 320..620 x 260..460).
+        # Nothing selected + empty canvas = the canvas menu.
+        page.evaluate("() => window.__svgen.scene.clearSelection()")
+        page.wait_for_timeout(150)
         page.mouse.click(900, 150, button="right")
         page.wait_for_timeout(350)
         ctx = page.evaluate(
@@ -182,17 +185,86 @@ def main():
         page.keyboard.press("Escape")
         page.wait_for_timeout(150)
 
-        # --- context menu on a shape ---------------------------------------
-        page.mouse.click(500, 300, button="right")
+        # --- context menu on a shape: the actions must actually run ---------
+        shape = page.evaluate(
+            """() => {
+              const a = window.__svgen;
+              a.setTool('select');
+              const el = a.newElement('rect');
+              el.x = 640; el.y = 400; el.w = 320; el.h = 220; el.name = 'TARGET';
+              a.scene.add(el);
+              const s = a.stage, r = s.host.getBoundingClientRect();
+              return { x: r.left + s.view.panX + 640 * s.view.zoom,
+                       y: r.top + s.view.panY + 400 * s.view.zoom };
+            }"""
+        )
+        page.wait_for_timeout(250)
+        page.mouse.click(shape["x"], shape["y"], button="right")
         page.wait_for_timeout(350)
         shape_menu = page.evaluate(
             "() => [...document.querySelectorAll('.menu-item')].map(b => b.textContent.trim())"
         )
         check("input: shape menu", lambda: f"{len(shape_menu)} items")
-        for wanted in ("再制", "删除", "移到最前"):
+        for wanted in ("复制", "粘贴", "再制", "删除", "移到最前"):
             assert any(wanted in i for i in shape_menu), f"shape menu missing {wanted}: {shape_menu}"
+
+        n0 = page.evaluate("() => window.__svgen.scene.doc.elements.length")
+        page.evaluate(
+            """() => [...document.querySelectorAll('.menu-item')]
+                 .find(b => b.textContent.includes('再制')).click()"""
+        )
+        page.wait_for_timeout(350)
+        n1 = page.evaluate("() => window.__svgen.scene.doc.elements.length")
+        check("menu: duplicate works", lambda: f"{n0} -> {n1}")
+        assert n1 == n0 + 1, "the duplicate menu entry did nothing"
+
+        page.mouse.click(shape["x"], shape["y"], button="right")
+        page.wait_for_timeout(300)
+        page.evaluate(
+            """() => [...document.querySelectorAll('.menu-item')]
+                 .find(b => b.textContent.includes('复制')).click()"""
+        )
+        page.wait_for_timeout(250)
+        has_clip = page.evaluate("() => window.__svgen.hasClipboard()")
+        page.mouse.click(shape["x"], shape["y"], button="right")
+        page.wait_for_timeout(300)
+        page.evaluate(
+            """() => [...document.querySelectorAll('.menu-item')]
+                 .find(b => b.textContent.includes('粘贴')).click()"""
+        )
+        page.wait_for_timeout(350)
+        n2 = page.evaluate("() => window.__svgen.scene.doc.elements.length")
+        check("menu: copy + paste work", lambda: f"clipboard={has_clip}, {n1} -> {n2}")
+        assert has_clip and n2 == n1 + 1, "copy/paste from the menu did nothing"
+
+        page.mouse.click(shape["x"], shape["y"], button="right")
+        page.wait_for_timeout(300)
+        page.evaluate(
+            """() => [...document.querySelectorAll('.menu-item')]
+                 .find(b => b.textContent.includes('删除')).click()"""
+        )
+        page.wait_for_timeout(500)
+        dialog = page.evaluate(
+            "() => ({ open: !!document.querySelector('.scrim'), btns: [...document.querySelectorAll('.modal-foot .btn')].map(b => b.textContent) })"
+        )
+        check("menu: delete asks first", lambda: json.dumps(dialog, ensure_ascii=False))
+        assert dialog["open"], "delete from the menu did not open the confirmation"
         page.keyboard.press("Escape")
-        page.wait_for_timeout(150)
+        page.wait_for_timeout(250)
+
+        # Right-clicking empty canvas while something is selected must still
+        # offer the selection actions — otherwise the menu looks dead.
+        page.evaluate("() => { const a = window.__svgen; a.scene.select(a.scene.doc.elements[0].id); }")
+        page.mouse.click(950, 140, button="right")
+        page.wait_for_timeout(350)
+        both = page.evaluate(
+            "() => [...document.querySelectorAll('.menu-item')].map(b => b.textContent.trim())"
+        )
+        check("menu: canvas menu keeps selection actions", lambda: f"{len(both)} items")
+        for wanted in ("删除", "填充画布"):
+            assert any(wanted in i for i in both), f"menu missing {wanted}: {both}"
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
 
         # --- context menu inside a text field -------------------------------
         page.click('.dock-tab[data-tab="export"]')
@@ -252,24 +324,53 @@ def main():
         assert size == 28, f"brush size did not change: {size}"
         page.keyboard.press("Escape")
 
-        # --- freehand is sticky and honours the brush -------------------------
+        # --- freehand: sticky, brush-driven, and ACTUALLY VISIBLE ------------
         page.evaluate("() => window.__svgen.scene.mutate('clear', d => { d.elements = []; d.selection = []; })")
         page.click('#rail [data-tool="pen"]')
-        page.wait_for_timeout(120)
-        for stroke, y in ((1, 260), (2, 420)):
-            page.mouse.move(320, y)
+        page.wait_for_timeout(150)
+
+        def canvas_ink():
+            """Bright pixels on the stage — a stroke that is drawn off-canvas
+            still exists in the document, so counting elements proves nothing."""
+            return page.evaluate(
+                """() => {
+                  const c = document.getElementById('stage');
+                  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+                  let n = 0;
+                  for (let i = 0; i < d.length; i += 4) {
+                    if (d[i + 3] > 40 && d[i] > 180 && d[i + 1] > 180 && d[i + 2] > 180) n++;
+                  }
+                  return n;
+                }"""
+            )
+
+        ink_before = canvas_ink()
+        for stroke, base in ((1, 300), (2, 460)):
+            page.mouse.move(340, base)
             page.mouse.down()
-            for x in range(320, 640, 16):
-                page.mouse.move(x, y + (x - 320) // 6)
-                page.wait_for_timeout(6)
+            for i in range(50):
+                x = 340 + i * 6
+                y = base + int(55 * math.sin(i / 6.0))
+                page.mouse.move(x, y)
+                page.wait_for_timeout(10)
             page.mouse.up()
-            page.wait_for_timeout(200)
+            page.wait_for_timeout(220)
+        ink_after = canvas_ink()
         pen = page.evaluate(
             """() => {
               const a = window.__svgen;
-              return { tool: a.tools.tool, count: a.scene.doc.elements.length,
-                       widths: a.scene.doc.elements.map(e => e.strokeWidth),
-                       smoother: a.scene.doc.elements.map(e => e.smooth) };
+              const canvas = a.scene.doc.canvas;
+              return {
+                tool: a.tools.tool,
+                count: a.scene.doc.elements.length,
+                widths: a.scene.doc.elements.map(e => e.strokeWidth),
+                smoother: a.scene.doc.elements.map(e => e.smooth),
+                points: a.scene.doc.elements.map(e => e.points.length),
+                inside: a.scene.doc.elements.every(e =>
+                  e.x > -canvas.width && e.x < canvas.width * 2 &&
+                  e.y > -canvas.height && e.y < canvas.height * 2),
+                positions: a.scene.doc.elements.map(e => [Math.round(e.x), Math.round(e.y)]),
+              };
             }"""
         )
         check("draw: freehand is sticky", lambda: f"tool={pen['tool']}, {pen['count']} strokes")
@@ -277,6 +378,52 @@ def main():
         assert pen["count"] == 2, f"expected 2 strokes, got {pen['count']}"
         assert all(w == 28 for w in pen["widths"]), f"brush size not applied: {pen['widths']}"
         assert all(pen["smoother"]), "strokes are not smooth paths"
+        assert all(p >= 6 for p in pen["points"]), f"strokes lost their curvature: {pen['points']}"
+        # The regression that made drawing look broken: refitPath accumulated
+        # the centroid, so the element ended up tens of thousands of units away
+        # and the stroke never appeared on screen.
+        check("draw: strokes land on the canvas", lambda: f"positions={pen['positions']}")
+        assert pen["inside"], f"a stroke was placed off-canvas: {pen['positions']}"
+        check("draw: strokes are visible", lambda: f"ink {ink_before} -> {ink_after}")
+        assert ink_after > ink_before + 400, f"the strokes produced almost no ink ({ink_before} -> {ink_after})"
+
+        # --- colour picker ----------------------------------------------------
+        page.click('#rail .swatch.fg')
+        page.wait_for_timeout(450)
+        picker = page.evaluate(
+            """() => {
+              const panel = document.querySelector('.cp-panel');
+              if (!panel) return { open: false };
+              const r = panel.getBoundingClientRect();
+              return {
+                open: true,
+                onScreen: r.left >= 0 && r.top >= 0 && r.right <= innerWidth + 1,
+                swatches: panel.querySelectorAll('.cp-swatch').length,
+                square: !!panel.querySelector('.cp-square'),
+                hue: !!panel.querySelector('.cp-hue'),
+                alpha: !!panel.querySelector('.cp-alpha'),
+                hex: panel.querySelector('.cp-hex').value,
+              };
+            }"""
+        )
+        check("colour: picker opens with visible swatches", lambda: f"{picker}")
+        assert picker.get("open"), "the colour picker did not open"
+        assert picker["onScreen"], "the picker was positioned off-screen"
+        assert picker["swatches"] >= 12, f"no visual swatch grid ({picker['swatches']})"
+        assert picker["square"] and picker["hue"] and picker["alpha"], "picker is missing controls"
+
+        page.evaluate("() => document.querySelectorAll('.cp-swatch')[8].click()")
+        page.wait_for_timeout(250)
+        picked = page.evaluate("() => window.__svgen.paint.fill")
+        check("colour: picking a swatch applies", lambda: f"fill={picked}")
+        assert picked and picked.lower() not in ("#cbff4d", ""), f"the fill did not change: {picked}"
+        page.evaluate("() => document.querySelector('.cp-actions .btn.brand').click()")
+        page.wait_for_timeout(300)
+        closed = page.evaluate("() => !document.querySelector('.cp-panel')")
+        chip = page.evaluate("() => document.querySelector('#rail .swatch.fg i').style.background")
+        check("colour: closes and repaints the chip", lambda: f"closed={closed}, chip={chip}")
+        assert closed, "the picker did not close"
+        assert chip and chip != "transparent", "the rail chip did not repaint"
 
         # --- canvas fill --------------------------------------------------------
         page.click('.dock-tab[data-tab="inspector"]')

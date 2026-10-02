@@ -573,27 +573,39 @@ export function applySize(el, w, h) {
   el.h = el.type === "line" || el.type === "arrow" ? 0 : nh;
 }
 
-/** Recompute w/h from the points of a path element (after free drawing). */
+/**
+ * Re-centre a path's points on their own bounding box and move the element to
+ * match.
+ *
+ * `el.points` is expected in ABSOLUTE scene coordinates; afterwards the points
+ * are local and `el.x`/`el.y` hold the centroid. This is deliberately
+ * idempotent — it SETS the position rather than accumulating into it. It used
+ * to do `el.x += cx`, so calling it on every pointer move during a freehand
+ * stroke added the centroid again and again: after fifty moves the element sat
+ * thirty thousand units off-canvas and the stroke was invisible.
+ */
 export function refitPath(el) {
-  if (el.type !== "path" || !el.points.length) return;
+  const pts = el.points;
+  if (el.type !== "path" || !pts || !pts.length) return;
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const [x, y] of el.points) {
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x);
-    maxY = Math.max(maxY, y);
+  for (const [x, y] of pts) {
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
   }
   const cx = (minX + maxX) / 2;
   const cy = (minY + maxY) / 2;
-  for (const p of el.points) {
+  for (const p of pts) {
     p[0] -= cx;
     p[1] -= cy;
   }
-  el.x += cx;
-  el.y += cy;
+  el.x = cx;
+  el.y = cy;
   el.w = Math.max(1, maxX - minX);
   el.h = Math.max(1, maxY - minY);
+  el._rev = (el._rev | 0) + 1;
 }

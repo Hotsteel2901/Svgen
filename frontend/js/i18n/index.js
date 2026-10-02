@@ -51,6 +51,14 @@ const DICT = {
     "ctx.selectAll": "Select all",
     "ctx.clear": "Clear",
     "ctx.clipboardBlocked": "Clipboard blocked — press Ctrl+V instead",
+    "ctx.nothingToPaste": "Nothing to paste — copy a shape first",
+    "ctx.pastedFromClipboard": "from the clipboard",
+
+    /* colour picker */
+    "color.title": "Colour",
+    "color.presets": "Swatches",
+    "color.recent": "Recent",
+    "color.none": "Nothing picked yet",
 
     /* element types */
     "type.rect": "Rectangle",
@@ -423,6 +431,13 @@ const DICT = {
     "ctx.selectAll": "全选",
     "ctx.clear": "清空",
     "ctx.clipboardBlocked": "剪贴板被拒绝——请直接按 Ctrl+V",
+    "ctx.nothingToPaste": "剪贴板里没有可粘贴的图形，请先复制一个",
+    "ctx.pastedFromClipboard": "来自剪贴板",
+
+    "color.title": "颜色",
+    "color.presets": "色板",
+    "color.recent": "最近使用",
+    "color.none": "还没有选过颜色",
 
     "type.rect": "矩形",
     "type.ellipse": "椭圆",

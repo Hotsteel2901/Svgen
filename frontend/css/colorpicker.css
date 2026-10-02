@@ -1,0 +1,193 @@
+/* ==========================================================================
+   Colour picker popover — the studio's own, so every colour is visible before
+   it is chosen and nothing depends on a browser dialog.
+   ========================================================================== */
+
+.cp-panel {
+  position: fixed;
+  z-index: 940;
+  width: 264px;
+  padding: var(--s2);
+  border-radius: var(--r-lg);
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--sh-3);
+  animation: pop var(--dur-2) var(--ease-out);
+}
+
+.cp-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 0 var(--s1) var(--s2);
+}
+
+.cp-title {
+  flex: 1;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--text-mute);
+}
+
+.cp-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+/* ---- saturation / value square ---------------------------------------- */
+
+.cp-square {
+  position: relative;
+  height: 132px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.cp-cursor {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: var(--r-full);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65), inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+/* ---- hue and alpha strips --------------------------------------------- */
+
+.cp-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.cp-hue,
+.cp-alpha {
+  position: relative;
+  height: 14px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--line);
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.cp-hue {
+  background: linear-gradient(
+    to right,
+    #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%
+  );
+}
+
+.cp-alpha {
+  --cp-hue: #cbff4d;
+  background-image: linear-gradient(to right, transparent, var(--cp-hue)),
+    linear-gradient(45deg, var(--line) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--line) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--line) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--line) 75%);
+  background-size: 100% 100%, 8px 8px, 8px 8px, 8px 8px, 8px 8px;
+  background-position: 0 0, 0 0, 0 4px, 4px -4px, -4px 0;
+}
+
+.cp-bar-cursor {
+  top: 50%;
+  margin-top: -6px;
+}
+
+/* ---- fields ------------------------------------------------------------ */
+
+.cp-fields {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.cp-preview {
+  position: relative;
+  width: 30px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-strong);
+  overflow: hidden;
+  background-image: linear-gradient(45deg, var(--line) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--line) 25%, transparent 25%);
+  background-size: 8px 8px;
+}
+
+.cp-preview > i {
+  position: absolute;
+  inset: 0;
+}
+
+.cp-preview.none > i {
+  background: linear-gradient(
+    to bottom right,
+    transparent calc(50% - 1px),
+    var(--danger) calc(50% - 1px),
+    var(--danger) calc(50% + 1px),
+    transparent calc(50% + 1px)
+  ) !important;
+}
+
+.cp-hex {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 var(--s2);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-family: var(--font-num);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  text-transform: lowercase;
+}
+
+.cp-hex:focus {
+  border-color: var(--brand-line);
+}
+
+/* ---- swatch grids ------------------------------------------------------ */
+
+.cp-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 3px;
+}
+
+.cp-swatch {
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: transform var(--dur-1) var(--ease);
+}
+
+.cp-swatch:hover {
+  transform: scale(1.18);
+  border-color: var(--text-faint);
+}
+
+.cp-empty {
+  grid-column: 1 / -1;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+.cp-actions {
+  display: flex;
+  gap: var(--s2);
+  padding-top: var(--s1);
+}
+
+.cp-actions .btn {
+  flex: 1;
+}

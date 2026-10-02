@@ -341,8 +341,18 @@ export class App extends Emitter {
     return true;
   }
 
-  paste() {
-    if (!this._clipboard || !this._clipboard.length) return;
+  /**
+   * Paste. Falls back to the system clipboard when the studio's own clipboard
+   * is empty, so the menu entry never just does nothing — and when there is
+   * genuinely nothing to paste it says so instead of looking broken.
+   */
+  async paste() {
+    if (!this.hasClipboard()) {
+      const imported = await this._pasteFromSystem();
+      if (imported) return;
+      toast(t("ctx.nothingToPaste"), { kind: "warn" });
+      return;
+    }
     const copies = this._clipboard.map((src) => {
       const copy = deepClone(src);
       copy.id = uid(src.type);
@@ -353,7 +363,39 @@ export class App extends Emitter {
     this.scene.addMany(copies);
     this.markDirty();
     this.timeline?.refresh();
+    this.layers?.refresh(true);
     this.dock?.refresh();
+    toast(t("st.duplicated"), { kind: "ok", timeout: 1400 });
+  }
+
+  /** Try the OS clipboard: a scene JSON, an SVG document, or nothing. */
+  async _pasteFromSystem() {
+    if (!navigator.clipboard?.readText) return false;
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      return false;
+    }
+    const trimmed = (text || "").trim();
+    if (!trimmed) return false;
+    try {
+      if (trimmed.startsWith("{")) {
+        const parsed = JSON.parse(trimmed);
+        const doc = parsed.scene || parsed;
+        if (doc && Array.isArray(doc.elements) && doc.elements.length) {
+          this.loadDocument(doc, t("ctx.pastedFromClipboard"));
+          return true;
+        }
+      }
+      if (trimmed.includes("<svg")) {
+        this.importSvgText(trimmed, t("ctx.pastedFromClipboard"));
+        return true;
+      }
+    } catch {
+      return false;
+    }
+    return false;
   }
 
   selectAll() {

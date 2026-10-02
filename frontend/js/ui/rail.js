@@ -3,9 +3,10 @@
 import { icon } from "./icons.js";
 import { h, attachTooltip, menu, theme } from "./shell.js";
 import { openBrushMenu } from "./contextmenu.js";
+import { openColorPopover } from "./colorpopover.js";
 import { RAIL_GROUP_COLOR } from "./palette.js";
 import { t } from "../i18n/index.js";
-import { toHex, parseColor, toOpaqueHex } from "../core/color.js";
+import { toHex, parseColor } from "../core/color.js";
 
 const TOOL_GROUPS = [
   {
@@ -136,12 +137,22 @@ export class Rail {
 
   _swatch(kind, get, set) {
     const el = h("button", { class: `swatch ${kind}`, type: "button" }, [h("i")]);
-    attachTooltip(el, kind === "fg" ? t("tool.fill") : t("tool.stroke"), kind === "fg" ? "" : "Shift+X");
-    const input = h("input", { type: "color" });
-    el.appendChild(input);
+    attachTooltip(el, kind === "fg" ? t("tool.fill") : t("tool.stroke"));
     el.addEventListener("click", (evt) => {
       evt.preventDefault();
-      this._colorMenu(el, get(), (color) => set(color));
+      openColorPopover({
+        anchor: el,
+        value: get(),
+        title: kind === "fg" ? t("tool.fill") : t("tool.stroke"),
+        onInput: (color) => {
+          set(color);
+          el._refresh();
+        },
+        onCommit: (color) => {
+          set(color);
+          el._refresh();
+        },
+      });
     });
     el._refresh = () => {
       const color = get();
@@ -165,43 +176,6 @@ export class Rail {
     this.app.tools.updateCursor(this.app.stage.pointer);
   }
 
-  _colorMenu(anchor, current, apply) {
-    const rect = anchor.getBoundingClientRect();
-    const items = [];
-    items.push({ header: true, label: t("tool.fill") });
-    for (const color of ["#0a0b0d", "#edeff3", "#cbff4d", "#6fc7ff", "#b79cff", "#ff8a5b", "#ff5f6d", "#58d68d", "#ffcf5c", "#ffffff"]) {
-      items.push({
-        label: color,
-        icon: "box",
-        onClick: () => apply(color),
-      });
-    }
-    items.push({ separator: true });
-    items.push({
-      label: t("exp.transparent"),
-      icon: "x",
-      onClick: () => apply(null),
-    });
-    items.push({
-      label: "…",
-      icon: "palette",
-      onClick: () => {
-        const input = document.createElement("input");
-        input.type = "color";
-        input.value = toOpaqueHex(parseColor(current));
-        input.style.position = "fixed";
-        input.style.opacity = "0";
-        document.body.appendChild(input);
-        input.addEventListener("input", () => apply(input.value));
-        input.addEventListener("change", () => {
-          apply(input.value);
-          input.remove();
-        });
-        input.click();
-      },
-    });
-    menu(items, { x: rect.right + 8, y: rect.top });
-  }
 }
 
 export { theme };

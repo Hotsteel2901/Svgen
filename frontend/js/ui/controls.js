@@ -11,6 +11,7 @@ import { icon } from "./icons.js";
 import { t } from "../i18n/index.js";
 import { clamp, num } from "../core/util.js";
 import { parseColor, toHex, toOpaqueHex, DEFAULT_SWATCHES } from "../core/color.js";
+import { openColorPopover, closeColorPopover } from "./colorpopover.js";
 
 /* ---------------------------------------------------------------- rows */
 
@@ -217,57 +218,42 @@ export function colorField({ value = "#000000", allowNone = true, onInput, onCom
     paint();
   }
 
-  /** Open the platform colour picker anchored to the chip. */
-  function openPicker() {
-    const input = h("input", { type: "color", value: toOpaqueHex(parseColor(current)) });
-    input.style.cssText = "position:fixed;left:-9999px;top:0;width:1px;height:1px";
-    document.body.appendChild(input);
-    let dirty = false;
-    input.addEventListener("input", () => {
-      dirty = true;
-      set(input.value);
-      if (onInput) onInput(input.value, { live: true });
-    });
-    const finish = () => {
-      if (dirty && onCommit) onCommit(current);
-      input.remove();
-    };
-    input.addEventListener("change", finish);
-    input.addEventListener("blur", finish);
-    input.click();
-  }
-
   chip.addEventListener("click", (evt) => {
     evt.preventDefault();
-    openPicker();
+    closeColorPopover();
+    openColorPopover({
+      anchor: chip,
+      value: current,
+      allowNone,
+      title: label || t("color.title"),
+      onInput: (v) => {
+        set(v);
+        if (onInput) onInput(v, { live: true });
+      },
+      onCommit: (v) => {
+        set(v);
+        if (onCommit) onCommit(v);
+      },
+    });
   });
 
   chip.addEventListener("contextmenu", (evt) => {
     evt.preventDefault();
-    const rect = chip.getBoundingClientRect();
-    const grid = h("div", {
-      style:
-        "display:grid;grid-template-columns:repeat(6,1fr);gap:5px;padding:6px;width:186px",
+    evt.__svgenHandled = true;
+    openColorPopover({
+      anchor: chip,
+      value: current,
+      allowNone,
+      title: label || t("color.title"),
+      onInput: (v) => {
+        set(v);
+        if (onInput) onInput(v, { live: true });
+      },
+      onCommit: (v) => {
+        set(v);
+        if (onCommit) onCommit(v);
+      },
     });
-    for (const color of DEFAULT_SWATCHES) {
-      const b = h("button", { class: "swatch", type: "button", title: color, style: "width:100%;height:20px" });
-      b.appendChild(h("i", { style: `background:${color}` }));
-      b.addEventListener("click", () => {
-        set(color);
-        if (onInput) onInput(color, { live: false });
-        if (onCommit) onCommit(color);
-      });
-      grid.appendChild(b);
-    }
-    menu(
-      [
-        { header: true, label: label || t("tool.fill") },
-        { node: grid },
-        { separator: true },
-        { label: "…", icon: "palette", onClick: openPicker },
-      ],
-      { x: rect.left, y: rect.bottom + 6 }
-    );
   });
 
   paint();
