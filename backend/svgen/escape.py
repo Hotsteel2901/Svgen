@@ -45,7 +45,9 @@ NAMED_COLORS = {
 def parse_color(value):
     """Parse a CSS/SVG color into (r,g,b,a) with 0..255 channels.
 
-    Returns None when the color cannot be parsed.
+    Returns None when the color cannot be parsed. Every channel is clamped:
+    `rgb(300,0,0)` and `rgba(0,0,0,2)` are out-of-range but must not raise,
+    because the result is fed straight into byte buffers.
     """
     if value is None:
         return None
@@ -54,39 +56,54 @@ def parse_color(value):
         return None
     if value.startswith("#"):
         h = value[1:]
-        if len(h) == 3:
-            r, g, b = (int(c * 2, 16) for c in h)
-            return (r, g, b, 255)
-        if len(h) in (4, 6, 8):
-            try:
-                if len(h) == 4:
-                    r, g, b, a = (int(c * 2, 16) for c in h)
-                elif len(h) == 6:
-                    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
-                    a = 255
-                else:
-                    r, g, b, a = (int(h[i:i + 2], 16) for i in (0, 2, 4, 6))
+        try:
+            if len(h) == 3:
+                r, g, b = (int(c * 2, 16) for c in h)
+                return (r, g, b, 255)
+            if len(h) == 4:
+                r, g, b, a = (int(c * 2, 16) for c in h)
                 return (r, g, b, a)
-            except ValueError:
-                return None
+            if len(h) == 6:
+                r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+                return (r, g, b, 255)
+            if len(h) == 8:
+                r, g, b, a = (int(h[i:i + 2], 16) for i in (0, 2, 4, 6))
+                return (r, g, b, a)
+        except ValueError:
+            return None
         return None
     if value in NAMED_COLORS:
         c = NAMED_COLORS[value]
         return c if len(c) == 4 else (c[0], c[1], c[2], 255)
-    m = re.match(r"rgba?\(([\d.\s%,]+)\)", value)
+    m = re.match(r"rgba?\(([^)]*)\)", value)
     if m:
-        parts = [p.strip() for p in m.group(1).split(",")]
+        # Accepts `rgb(1,2,3)`, `rgb(1 2 3)`, `rgb(1 2 3 / .5)`, percentages.
+        parts = [p for p in re.split(r"[\s,/]+", m.group(1).strip()) if p]
+        if len(parts) < 3:
+            return None
         try:
-            def cn(p):
-                if p.endswith("%"):
-                    return int(float(p[:-1]) / 100.0 * 255)
-                return int(float(p))
-            r = cn(parts[0]); g = cn(parts[1]); b = cn(parts[2])
-            a = 255 if len(parts) < 4 else int(float(parts[3].rstrip("%")) / 100.0 * 255 if parts[3].endswith("%") else float(parts[3]) * 255)
-            return (r, g, b, a)
-        except Exception:
+            def channel(p):
+                v = float(p[:-1]) * 2.55 if p.endswith("%") else float(p)
+                return clamp_byte(v)
+
+            r, g, b = channel(parts[0]), channel(parts[1]), channel(parts[2])
+            if len(parts) < 4:
+                return (r, g, b, 255)
+            raw = parts[3]
+            av = float(raw[:-1]) / 100.0 if raw.endswith("%") else float(raw)
+            return (r, g, b, clamp_byte(av * 255.0))
+        except (ValueError, TypeError):
             return None
     return None
+
+
+def clamp_byte(v) -> int:
+    """Coerce anything numeric into an integer 0..255."""
+    try:
+        n = int(round(float(v)))
+    except (TypeError, ValueError):
+        return 0
+    return 0 if n < 0 else (255 if n > 255 else n)
 
 
 def color_to_rgba(value, default=(0, 0, 0, 255)):

@@ -1,10 +1,19 @@
-"""SMIL animation sampler.
+"""SMIL animation sampler ("baking").
 
-The front-end exports SVG that contains SMIL <animate> / <animateTransform>
-elements.  For video conversion we cannot record the browser; instead we *bake*
-each frame: sample every animation at time t, inject the resulting attribute
-value into the target element and strip the <animate> nodes, producing a static
-SVG that any rasterizer can draw.
+The front-end exports SVG containing SMIL <animate> / <animateTransform>
+elements. We cannot screen-record a browser per frame, so instead we *bake*:
+for each frame time t we sample every animation, write the resulting attribute
+value onto its target element, drop the <animate> nodes, and hand a plain static
+SVG to whatever rasterizer is available.
+
+Baking used to look animations up by their `id` attribute — but exported
+<animate> nodes carry no id, so every spec was silently skipped and every frame
+came out identical (a still image mislabelled as a video). Lookup is now done by
+a marker attribute stamped on each node at collection time, which survives the
+deep copy and costs one dict.
+
+Frame times are `i / fps`, so a 2 s @ 30 fps clip yields exactly 60 distinct
+frames with the last one at 1.967 s — not 61 with a duplicate at t = duration.
 """
 
 import copy
@@ -13,7 +22,23 @@ from dataclasses import dataclass, field
 
 from .escape import parse_float_list, parse_color, lerp_color, format_num
 
-_SMIL_NS = {"xlink": "http://www.w3.org/1999/xlink"}
+SVG_NS = "http://www.w3.org/2000/svg"
+XLINK_NS = "http://www.w3.org/1999/xlink"
+SVGEN_NS = "http://svgen.app"
+
+# Emit a bare <svg> root instead of <ns0:svg> when re-serializing.
+try:
+    ET.register_namespace("", SVG_NS)
+    ET.register_namespace("xlink", XLINK_NS)
+except ValueError:  # pragma: no cover - only if another import beat us to it
+    pass
+
+# Attribute stamped on every <animate*> node so its clone can be found after
+# deepcopy without relying on document ids.
+MARKER = "data-svgen-anim"
+
+_ANIM_TAGS = ("animate", "animateTransform", "animateMotion", "animateColor")
+_TRANSFORM_TYPES = ("translate", "scale", "rotate", "skewX", "skewY")
 
 
 @dataclass
@@ -21,50 +46,54 @@ class AnimSpec:
     elem: ET.Element
     target: ET.Element
     attribute: str
-    anim_type: str                 # 'animate' | 'animateTransform'
-    values: list = field(default_factory=list)   # strings
-    key_times: list = field(default_factory=list)  # floats 0..1
+    anim_type: str                     # 'animate' | 'animateTransform' | ...
+    values: list = field(default_factory=list)      # value strings
+    key_times: list = field(default_factory=list)   # floats 0..1
     dur: float = 1.0
     begin: float = 0.0
-    repeat_count: float = 1.0      # float('inf') allowed
+    repeat_count: float = 1.0          # float('inf') allowed
     fill: str = "remove"
     calc_mode: str = "linear"
     transform_type: str = "translate"
-    namespace: str = ""            # e.g. '{http://www.w3.org/2000/svg}'
+    namespace: str = ""
+    marker: str = ""
+    parent_id: str = ""                # data-svgen-parent, when present
+    base_value: str = None             # the target's attribute before animating
 
 
 def _local_name(tag):
+    if not isinstance(tag, str):
+        return ""
     return tag.rsplit("}", 1)[-1]
 
 
-def parse_duration(value) -> float:
-    if not value:
-        return 1.0
-    value = str(value).strip()
-    m = 1.0
-    if value.endswith("ms"):
-        value = value[:-2]; m = 0.001
-    elif value.endswith("s"):
-        value = value[:-1]
+def _namespace_of(tag):
+    if isinstance(tag, str) and "}" in tag:
+        return tag[: tag.rindex("}") + 1]
+    return ""
+
+
+def parse_duration(value, default=1.0) -> float:
+    """'2s' / '500ms' / '1.5' -> seconds. Tolerates junk."""
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if not text:
+        return default
+    mult = 1.0
+    if text.endswith("ms"):
+        text, mult = text[:-2], 0.001
+    elif text.endswith("min"):
+        text, mult = text[:-3], 60.0
+    elif text.endswith("h"):
+        text, mult = text[:-1], 3600.0
+    elif text.endswith("s"):
+        text = text[:-1]
+    text = text.strip()
     try:
-        return float(value) * m
+        return float(text) * mult
     except ValueError:
-        return 1.0
-
-
-def _find_target(root, elem, animate_elem):
-    href = animate_elem.get("href") or animate_elem.get("{http://www.w3.org/1999/xlink}href")
-    if href and href.startswith("#"):
-        found = root.find(".//*[@id='%s']" % href[1:])
-        if found is not None:
-            return found
-    # default: the parent element
-    parent = None
-    for p in root.iter():
-        if p is not None and any(c is elem for c in list(p)):
-            parent = p
-            break
-    return parent or elem
+        return default
 
 
 def _default_key_times(n_values):
@@ -73,51 +102,122 @@ def _default_key_times(n_values):
     return [i / (n_values - 1) for i in range(n_values)]
 
 
-def collect_animations(svg_text) -> tuple:
-    """Return (root, anims, duration)."""
+def _parent_map(root):
+    """{child: parent} for the whole tree — avoids an O(n) walk per animation."""
+    return {child: parent for parent in root.iter() for child in parent}
+
+
+def _find_by_id(root, eid):
+    if not eid:
+        return None
+    for el in root.iter():
+        if el.get("id") == eid:
+            return el
+    return None
+
+
+def _resolve_target(root, anim_elem, parents):
+    href = anim_elem.get("href") or anim_elem.get("{%s}href" % XLINK_NS)
+    if href and href.startswith("#"):
+        found = _find_by_id(root, href[1:])
+        if found is not None:
+            return found
+    return parents.get(anim_elem, anim_elem)
+
+
+def collect_animations(svg_text):
+    """Parse an SVG string. Returns (root, [AnimSpec], duration_seconds)."""
     root = ET.fromstring(svg_text)
+    parents = _parent_map(root)
     anims = []
+    seen_markers = set()
+
     for elem in root.iter():
         tag = _local_name(elem.tag)
-        if tag not in ("animate", "animateTransform", "animateMotion"):
+        if tag not in _ANIM_TAGS:
             continue
-        if tag == "animateMotion":
-            continue
-        target = _find_target(root, elem, elem)
         attribute = elem.get("attributeName", "")
         if not attribute:
             continue
-        anim_type = "animateTransform" if tag == "animateTransform" else "animate"
-        transform_type = elem.get("type", "translate")
+        anim_type = tag if tag != "animateColor" else "animate"
+
         values = []
-        if elem.get("values") is not None:
-            values = [v.strip() for v in elem.get("values").split(";")]
-        else:
+        raw_values = elem.get("values")
+        if raw_values is not None:
+            values = [v.strip() for v in raw_values.split(";")]
+
+        target = _resolve_target(root, elem, parents)
+        base_value = target.get(attribute)
+
+        if not values:
             frm = elem.get("from")
             to = elem.get("to")
+            by = elem.get("by")
             if frm is not None and to is not None:
                 values = [frm, to]
+            elif frm is not None and by is not None:
+                a = parse_float_list(frm)
+                b = parse_float_list(by)
+                if a and b and len(a) == len(b):
+                    values = [frm, " ".join(format_num(x + y) for x, y in zip(a, b))]
+                else:
+                    values = [frm]
             elif to is not None:
-                values = ["", to]
+                # `to` alone animates from the element's current value.
+                values = [base_value if base_value is not None else "", to]
+            elif by is not None and base_value is not None:
+                # `by` alone animates from the current value to current + by.
+                a = parse_float_list(base_value)
+                b = parse_float_list(by)
+                if a and b and len(a) == len(b):
+                    values = [base_value, " ".join(format_num(x + y) for x, y in zip(a, b))]
+        if len(values) < 1:
+            continue
+
         key_times = parse_float_list(elem.get("keyTimes", "")) or _default_key_times(len(values))
-        if key_times and key_times[0] != 0.0:
-            key_times = [0.0] + key_times
-        dur = parse_duration(elem.get("dur", "1s"))
-        begin = parse_duration(elem.get("begin", "0s"))
-        if elem.get("repeatCount") == "indefinite":
+        while len(key_times) < len(values):
+            key_times.append(1.0)
+        key_times = key_times[: len(values)]
+
+        dur = parse_duration(elem.get("dur"), 1.0)
+        begin = parse_duration(elem.get("begin"), 0.0)
+        repeat_raw = (elem.get("repeatCount") or "1").strip()
+        if repeat_raw == "indefinite":
             repeat_count = float("inf")
         else:
             try:
-                repeat_count = float(elem.get("repeatCount", "1"))
+                repeat_count = max(0.0, float(repeat_raw))
             except ValueError:
                 repeat_count = 1.0
-        anims.append(AnimSpec(
-            elem=elem, target=target, attribute=attribute, anim_type=anim_type,
-            values=values, key_times=key_times, dur=dur, begin=begin,
-            repeat_count=repeat_count, fill=elem.get("fill", "remove"),
-            calc_mode=elem.get("calcMode", "linear"), transform_type=transform_type,
-            namespace=elem.tag[:elem.tag.rindex("}") + 1] if "}" in elem.tag else "",
-        ))
+
+        marker = elem.get(MARKER)
+        if not marker or marker in seen_markers:
+            marker = "a%d" % len(seen_markers)
+            elem.set(MARKER, marker)
+        seen_markers.add(marker)
+
+        anims.append(
+            AnimSpec(
+                elem=elem,
+                target=target,
+                attribute=attribute,
+                anim_type=anim_type,
+                values=values,
+                key_times=key_times,
+                dur=dur if dur > 0 else 1.0,
+                begin=begin,
+                repeat_count=repeat_count,
+                fill=elem.get("fill", "remove"),
+                calc_mode=elem.get("calcMode", "linear"),
+                transform_type=(elem.get("type") or "translate").strip(),
+                namespace=_namespace_of(elem.tag),
+                marker=marker,
+                parent_id=(elem.get("%sparent" % ("{%s}" % SVGEN_NS))
+                           or elem.get("data-svgen-parent") or ""),
+                base_value=base_value,
+            )
+        )
+
     duration = 0.0
     for a in anims:
         if a.repeat_count == float("inf"):
@@ -128,52 +228,16 @@ def collect_animations(svg_text) -> tuple:
     return root, anims, duration
 
 
-def _interpolate(a: AnimSpec, local_t: float):
-    """Return the interpolated *value string* for an animation at its local time."""
-    if not a.values:
-        return None
-    n = len(a.values)
-    kt = a.key_times
-    while len(kt) < n:
-        kt = kt + [1.0]
-    kt = kt[:n]
-    # clamp local_t into [0, dur] (fill=freeze handled by caller persisting last)
-    t = max(0.0, min(local_t, a.dur))
-    u = 1.0
-    if a.dur > 0:
-        u = t / a.dur
-    if a.calc_mode == "discrete":
-        for i in range(n):
-            if u <= kt[i]:
-                return a.values[max(i - 1, 0)]
-        return a.values[-1]
-    # find segment
-    seg = n - 2
-    for i in range(n - 1):
-        if kt[i] <= u <= kt[i + 1]:
-            seg = i
-            break
-    k0, k1 = kt[seg], kt[seg + 1]
-    span = (k1 - k0) or 1.0
-    f = (u - k0) / span
-    v0, v1 = a.values[seg], a.values[seg + 1]
-    if v0 == "" and v1 != "":
-        return v1
-    if v1 == "" and v0 != "":
-        return v0
-    if a.attribute in ("opacity", "fill-opacity", "stroke-opacity") or _looks_color(v0) or _looks_color(v1):
-        return _lerp_color_string(v0, v1, f)
-    if a.anim_type == "animateTransform":
-        return _lerp_transform(v0, v1, f, a.transform_type)
-    return _lerp_list_string(v0, v1, f)
+# --------------------------------------------------------------------------
+# Interpolation
+# --------------------------------------------------------------------------
 
 
 def _looks_color(s):
     if not s:
         return False
-    s = s.strip().lower()
-    return s.startswith("#") or s.startswith("rgb") or s in (
-        "black", "white", "red", "green", "blue", "yellow", "cyan", "magenta")
+    t = s.strip().lower()
+    return t.startswith("#") or t.startswith("rgb") or t.startswith("hsl")
 
 
 def _lerp_color_string(v0, v1, f):
@@ -189,101 +253,209 @@ def _lerp_list_string(v0, v1, f):
     n0 = parse_float_list(v0)
     n1 = parse_float_list(v1)
     if n0 and n1 and len(n0) == len(n1):
-        out = []
-        for a, b in zip(n0, n1):
-            v = a + (b - a) * f
-            out.append("%s" % format_num(v))
-        return " ".join(out)
+        return " ".join(format_num(a + (b - a) * f) for a, b in zip(n0, n1))
     return v1 if f >= 0.5 else v0
 
 
 def _lerp_transform(v0, v1, f, ttype):
-    if ttype == "translate":
-        return "translate(%s)" % _lerp_list_string(v0, v1, f)
-    if ttype == "scale":
-        return "scale(%s)" % _lerp_list_string(v0, v1, f)
-    if ttype == "rotate":
-        return "rotate(%s)" % _lerp_list_string(v0, v1, f)
+    if ttype in _TRANSFORM_TYPES:
+        return "%s(%s)" % (ttype, _lerp_list_string(v0, v1, f))
     return v1 if f >= 0.5 else v0
 
 
-def sample_at(root, anims, t: float) -> str:
-    """Return a static SVG string at absolute time t (seconds)."""
-    tree = copy.deepcopy(root)
-    # map original anim specs to clones
-    spec_map = []
-    orig_elems = [a.elem for a in anims]
-    for spec, oelem in zip(anims, orig_elems):
-        clone = _find_clone(tree, oelem)
-        if clone is None:
-            continue
-        spec_map.append((spec, clone))
+def _format_value(a, v0, v1, f):
+    """Blend two value strings according to the animation's kind."""
+    if v0 == "" and v1 != "":
+        return v1
+    if v1 == "" and v0 != "":
+        return v0
+    if a.anim_type == "animateTransform":
+        return _lerp_transform(v0, v1, f, a.transform_type)
+    if a.attribute.endswith("opacity"):
+        # Opacity is a bare number, not a colour: interpolate it numerically or
+        # a fade becomes a hard cut at the midpoint.
+        return _lerp_list_string(v0, v1, f)
+    if _looks_color(v0) or _looks_color(v1):
+        return _lerp_color_string(v0, v1, f)
+    return _lerp_list_string(v0, v1, f)
 
-    for spec, clone in spec_map:
-        local = t - spec.begin
-        if spec.repeat_count == float("inf") and spec.dur > 0:
-            local = local % spec.dur
-        elif local < 0:
+
+def _interpolate(a, local_t):
+    """Interpolated *value string* for one animation at its local time."""
+    if not a.values:
+        return None
+    n = len(a.values)
+    if n == 1:
+        # A single value still has to be wrapped/normalised for its kind.
+        return _format_value(a, a.values[0], a.values[0], 0.0)
+
+    kt = list(a.key_times)
+    while len(kt) < n:
+        kt.append(1.0)
+    kt = kt[:n]
+    # keyTimes must be non-decreasing; repair rather than crash.
+    for i in range(1, n):
+        if kt[i] < kt[i - 1]:
+            kt[i] = kt[i - 1]
+
+    t = max(0.0, min(local_t, a.dur))
+    u = t / a.dur if a.dur > 0 else 1.0
+
+    if a.calc_mode == "discrete":
+        idx = 0
+        for i in range(n):
+            if u >= kt[i]:
+                idx = i
+        return _format_value(a, a.values[idx], a.values[idx], 0.0)
+
+    # Clamp into the first/last segment instead of returning a raw value —
+    # transform types must still be wrapped as `translate(...)` etc.
+    if u <= kt[0]:
+        seg, f = 0, 0.0
+    elif u >= kt[-1]:
+        seg, f = n - 2, 1.0
+    else:
+        seg = n - 2
+        for i in range(n - 1):
+            if kt[i] <= u <= kt[i + 1]:
+                seg = i
+                break
+        span = kt[seg + 1] - kt[seg]
+        f = 0.0 if span <= 1e-12 else (u - kt[seg]) / span
+
+    return _format_value(a, a.values[seg], a.values[seg + 1], f)
+
+
+# --------------------------------------------------------------------------
+# Baking
+# --------------------------------------------------------------------------
+
+
+class _Baked:
+    """A parsed animation prepared for repeated sampling against one tree."""
+
+    __slots__ = ("spec", "node", "parent", "host", "had_attr")
+
+    def __init__(self, spec, node, parent, host, had_attr):
+        self.spec = spec
+        self.node = node        # the <animate*> clone we will strip
+        self.parent = parent    # its parent, for stripping
+        self.host = host        # the element whose attribute we write
+        self.had_attr = had_attr
+
+
+def _prepare(root, anims):
+    """Deep copy once, resolve every clone, and strip the animation nodes."""
+    tree = copy.deepcopy(root)
+    parents = _parent_map(tree)
+    by_marker = {}
+    for el in tree.iter():
+        marker = el.get(MARKER)
+        if marker is not None:
+            by_marker[marker] = el
+
+    baked = []
+    for spec in anims:
+        node = by_marker.get(spec.marker)
+        if node is None:
             continue
-        elif local > spec.dur * max(spec.repeat_count, 1.0):
-            if spec.fill == "freeze":
-                local = spec.dur
-            else:
-                continue
-        value = _interpolate(spec, local)
-        if value is None:
-            continue
-        spec.target_clone = clone
-        target_clone = _find_target(tree, clone, clone)
-        # For nested transforms produced by our front-end, the animate element
-        # carries a data-svgen-parent attribute pointing at the <g> to animate.
-        pid = clone.get("{http://svgen.app}parent") or clone.get("data-svgen-parent")
-        if pid:
-            node = _find_by_id(tree, pid)
-            if node is not None:
-                node.set(spec.attribute, value)
-        else:
-            target_clone.set(spec.attribute, value)
-        # remove the animate node
-        parent = _find_parent(tree, clone)
-        if parent is not None:
+        parent = parents.get(node)
+        # SMIL targets the animation element's parent; `data-svgen-parent`
+        # (written by the front-end) names it explicitly when groups are nested.
+        host = _find_by_id(tree, spec.parent_id) if spec.parent_id else None
+        if host is None:
+            host = parent
+        if host is None:
+            host = node
+        baked.append(_Baked(spec, node, parent, host, host.get(spec.attribute) is not None))
+
+    for b in baked:
+        if b.parent is not None:
             try:
-                parent.remove(clone)
+                b.parent.remove(b.node)
             except ValueError:
                 pass
+        else:
+            try:
+                tree.remove(b.node)
+            except ValueError:
+                pass
+    return tree, baked
 
+
+def _sample_into(baked, t):
+    for b in baked:
+        spec = b.spec
+        dur = spec.dur if spec.dur > 0 else 1.0
+        local = t - spec.begin
+        active = True
+
+        if local < 0:
+            # Before `begin` the animation is not in effect.
+            active = False
+            local = 0.0
+        else:
+            cycles = local / dur
+            if spec.repeat_count == float("inf"):
+                local = local % dur
+            elif cycles >= max(spec.repeat_count, 0.0):
+                active = False
+                local = dur
+            else:
+                # Finite repeat: wrap so cycles 2..n actually replay.
+                local = local % dur
+
+        if not active:
+            if spec.fill == "freeze":
+                value = _interpolate(spec, local)
+                if value is not None:
+                    b.host.set(spec.attribute, value)
+            elif b.had_attr and spec.base_value is not None:
+                # fill="remove" (the default) restores the pre-animation value.
+                b.host.set(spec.attribute, spec.base_value)
+            elif not b.had_attr:
+                b.host.attrib.pop(spec.attribute, None)
+            continue
+
+        value = _interpolate(spec, local)
+        if value is not None:
+            b.host.set(spec.attribute, value)
+
+
+def sample_at(root, anims, t):
+    """Return a static SVG string at absolute time t (seconds)."""
+    tree, baked = _prepare(root, anims)
+    _sample_into(baked, t)
     return ET.tostring(tree, encoding="unicode")
 
 
-def _find_by_id(root, eid):
-    for el in root.iter():
-        if el.get("id") == eid:
-            return el
-    return None
+def frames(svg_text, duration=None, fps=30):
+    """Bake a frame sequence.
+
+    Returns (root, [(t, svg_string), ...], duration). Frame times are i / fps so
+    no two frames duplicate unless the animation genuinely holds still.
+    """
+    root, anims, computed = collect_animations(svg_text)
+    if duration is None or duration <= 0:
+        duration = computed if computed > 0 else 1.0
+    fps = max(1, min(240, int(fps)))
+    count = max(1, int(round(duration * fps)))
+
+    tree, baked = _prepare(root, anims)
+    out = []
+    for i in range(count):
+        t = i / fps
+        _sample_into(baked, t)
+        out.append((t, ET.tostring(tree, encoding="unicode")))
+    return root, out, duration
 
 
-def _find_clone(root, original):
-    """Locate the clone of `original` inside the deep-copied tree by id path."""
-    pid = original.get("id")
-    if pid:
-        return _find_by_id(root, pid)
-    return None
-
-
-def _find_parent(root, elem):
-    for p in root.iter():
-        for c in list(p):
-            if c is elem:
-                return p
-    return None
-
-
-def timeline_info(svg_text) -> dict:
+def timeline_info(svg_text):
     """Human readable summary of the animation in an SVG document."""
     try:
         root, anims, duration = collect_animations(svg_text)
     except ET.ParseError as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": "Invalid SVG: %s" % exc}
     out = []
     for a in anims:
         out.append({
@@ -296,22 +468,11 @@ def timeline_info(svg_text) -> dict:
             "dur": a.dur,
             "repeat": "indefinite" if a.repeat_count == float("inf") else a.repeat_count,
         })
-    return {"ok": True, "animations": out, "duration": duration}
-
-
-def frames(svg_text, duration=None, fps=30) -> tuple:
-    """Yield (t, svg_string) frames for the animated SVG.
-
-    Returns (root_tree, list_of_frames, computed_duration).
-    """
-    root, anims, computed = collect_animations(svg_text)
-    if duration is None:
-        duration = computed
-    if duration <= 0:
-        duration = 1.0
-    count = max(2, int(round(duration * fps)))
-    result = []
-    for i in range(count):
-        t = duration * i / (count - 1)
-        result.append((t, sample_at(root, anims, t)))
-    return root, result, duration
+    animated_elements = len({id(a.target) for a in anims})
+    return {
+        "ok": True,
+        "animations": out,
+        "duration": duration,
+        "elements": len(list(root.iter())),
+        "animated": animated_elements,
+    }

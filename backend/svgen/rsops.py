@@ -117,49 +117,67 @@ def _stroke_polys(pts, width, linecap, linejoin, closed, dasharray):
     return _stroke_solid_polys(pts, half, linecap, linejoin, closed)
 
 
+def _dash_pattern(dasharray):
+    """Normalise a dash pattern: positives only, even length, non-zero total."""
+    pattern = [p for p in parse_float_list(dasharray or "") if p > 0]
+    if not pattern:
+        return None
+    if len(pattern) % 2:
+        # An odd count repeats implicitly (SVG spec).
+        pattern = pattern * 2
+    return pattern if sum(pattern) > 0 else None
+
+
 def _stroke_dashed_polys(pts, half, dasharray):
-    pattern = parse_float_list(dasharray)
-    pattern = [p for p in pattern if p > 0]
+    """Buffer a dashed stroke by walking cumulative arc length.
+
+    The previous implementation reseated its baseline to the *remainder* of each
+    segment while still interpolating from the segment start, so the walker
+    oscillated between two points and `while seg > 0` never terminated — any
+    realistic `stroke-dasharray` hung the renderer on every engine.
+    """
+    pattern = _dash_pattern(dasharray)
     if not pattern:
         return []
-    total = sum(pattern)
-    if total <= 0:
-        return []
-    runs = []
-    run = [pts[0]]
-    plen = 0.0
-    pi = 0
-    for i in range(1, len(pts)):
-        dx = pts[i][0] - pts[i - 1][0]
-        dy = pts[i][1] - pts[i - 1][1]
-        seg = math.hypot(dx, dy)
-        if seg == 0:
-            continue
-        while seg > 0:
-            remaining = pattern[pi] - plen
-            if seg < remaining:
-                t = seg / math.hypot(dx, dy) if (dx or dy) else 0
-                run.append((pts[i - 1][0] + dx * t, pts[i - 1][1] + dy * t))
-                plen += seg
-                seg = 0
-            else:
-                t = remaining / math.hypot(dx, dy) if (dx or dy) else 0
-                newp = (pts[i - 1][0] + dx * t, pts[i - 1][1] + dy * t)
-                run.append(newp)
-                if pi % 2 == 0:
-                    runs.append(run)
-                run = [newp]
-                plen = 0.0
-                pi = (pi + 1) % len(pattern)
-                seg -= remaining
-                dx = pts[i][0] - newp[0]
-                dy = pts[i][1] - newp[1]
-                seg = math.hypot(dx, dy) if (pts[i][0] - newp[0] or pts[i][1] - newp[1]) else 0
-    if pi % 2 == 0 and len(run) > 1:
-        runs.append(run)
+
     polys = []
-    for r in runs:
-        polys.extend(_stroke_solid_polys(r, half, "round", "miter", False))
+    pi = 0
+    remaining = pattern[0]
+    on = True
+    run = [pts[0]]
+    guard = 0
+
+    for i in range(len(pts) - 1):
+        ax, ay = pts[i]
+        bx, by = pts[i + 1]
+        length = math.hypot(bx - ax, by - ay)
+        if length <= 0:
+            continue
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        travelled = 0.0
+
+        while length - travelled > 1e-9:
+            guard += 1
+            if guard > 1000000:  # belt and braces; the walk provably terminates
+                return polys
+            step = remaining if remaining < length - travelled else length - travelled
+            travelled += step
+            remaining -= step
+            point = (ax + ux * travelled, ay + uy * travelled)
+
+            if on:
+                run.append(point)
+
+            if remaining <= 1e-9:
+                if on and len(run) > 1:
+                    polys.extend(_stroke_solid_polys(run, half, "round", "miter", False))
+                pi = (pi + 1) % len(pattern)
+                remaining = pattern[pi]
+                on = not on
+                run = [point]
+
+    if on and len(run) > 1:
+        polys.extend(_stroke_solid_polys(run, half, "round", "miter", False))
     return polys
 
 
@@ -244,6 +262,10 @@ def build_ops(svg_text, width=None, height=None, background=None):
     sh = _attr(root, "height")
     vb = root.get("viewBox")
     vb_list = parse_float_list(vb) if vb else None
+    # A viewBox needs exactly four numbers; anything else is malformed and must
+    # not blow up with an unpack error deep inside the render path.
+    if vb_list is not None and len(vb_list) != 4:
+        vb_list = None
     if width is None:
         width = int(strip_units(sw) if sw else (vb_list[2] if vb_list else 800))
     if height is None:
@@ -255,7 +277,7 @@ def build_ops(svg_text, width=None, height=None, background=None):
     par = (root.get("preserveAspectRatio", "xMidYMid meet").strip())
     parts = par.split()
     align = parts[0] if parts else "xMidYMid"
-    meet = "slice" in par or (len(parts) > 1 and parts[1] == "slice")
+    slice_mode = ("slice" in par) or (len(parts) > 1 and parts[1] == "slice")
 
     if vb_list:
         vbx, vby, vbw, vbh = vb_list
@@ -263,10 +285,23 @@ def build_ops(svg_text, width=None, height=None, background=None):
             vbw, vbh = width, height
         sx = width / vbw
         sy = height / vbh
-        s = min(sx, sy) if (align == "none" or meet) else max(sx, sy)
-        ox = (width - vbw * s) / 2.0
-        oy = (height - vbh * s) / 2.0
-        base = raster.Mat(s, 0, 0, s, ox - vbx * s, oy - vby * s)
+        if align == "none":
+            base = raster.Mat(sx, 0, 0, sy, -vbx * sx, -vby * sy)
+        else:
+            # meet → fit inside (min); slice → cover (max). Slice used to be
+            # inverted, which cropped or letterboxed the wrong way.
+            s = max(sx, sy) if slice_mode else min(sx, sy)
+            ox = (width - vbw * s) / 2.0
+            oy = (height - vbh * s) / 2.0
+            if align.startswith("xMin"):
+                ox = 0.0
+            elif align.startswith("xMax"):
+                ox = width - vbw * s
+            if align.endswith("YMin"):
+                oy = 0.0
+            elif align.endswith("YMax"):
+                oy = height - vbh * s
+            base = raster.Mat(s, 0, 0, s, ox - vbx * s, oy - vby * s)
     else:
         base = raster.Mat(1, 0, 0, 1, 0, 0)
 
@@ -316,7 +351,7 @@ def _emit_shape(el, subpaths, mat, sub_op, ops, grads):
                     ops.fill_poly(poly, "nonzero", spec2, mul)
 
 
-def _emit_text(el, mat, sub_op, ops):
+def _emit_text(el, grads, mat, sub_op, ops):
     text = (el.text or "") + "".join((ch.text or "") for ch in list(el))
     if not text.strip():
         return
@@ -325,10 +360,6 @@ def _emit_text(el, mat, sub_op, ops):
     y = _num(el, "y", 0)
     dx = _num(el, "dx", 0)
     anchor = _attr(el, "text-anchor", "start")
-    spec, op = _shape_paint(el, "fill", None, mat, {}, sub_op)
-    if spec is None or op <= 0:
-        return
-    ax, ay = _xf(mat, x + dx, y)
 
     # measure
     w = 0
@@ -338,11 +369,22 @@ def _emit_text(el, mat, sub_op, ops):
             key = " "
         w += raster._GLYPH_ADV
     w *= font_size / 7.0
+
+    ax, ay = _xf(mat, x + dx, y)
     ox = ax
     if anchor == "middle":
         ox = ax - w / 2.0
     elif anchor == "end":
         ox = ax - w
+
+    # A real bbox in user space, so gradient-filled text resolves instead of
+    # crashing on `bbox=None` (and so url(#g) fills are not silently dropped).
+    glyph_h = font_size
+    bbox = (ax, ay, max(1.0, w), max(1.0, glyph_h))
+    spec, op = _shape_paint(el, "fill", bbox, mat, grads, sub_op)
+    if spec is None or op <= 0:
+        return
+
     cx = ox
     scale = font_size / 7.0
     mul = op * sub_op
@@ -376,4 +418,4 @@ def _walk(el, grads, mat, op, ops, ss):
     if tag in ("rect", "circle", "ellipse", "line", "polyline", "polygon", "path"):
         _emit_shape(el, raster.shape_subpaths(el, tag), m, child_op, ops, grads)
     elif tag == "text":
-        _emit_text(el, m, child_op, ops)
+        _emit_text(el, grads, m, child_op, ops)

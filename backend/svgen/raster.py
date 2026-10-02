@@ -145,8 +145,10 @@ def parse_path(d):
     cur = None
     while i < len(tokens):
         kind, num = tokens[i]
+        is_letter = False
         if kind:
             cur = kind
+            is_letter = True
             i += 1
         else:
             if cur is None:
@@ -186,11 +188,11 @@ def parse_path(d):
                 cmds.append((cur,) + tuple(tokens[i + k][1] for k in range(7)))
                 i += 7
         elif cur == "Z" or cur == "z":
+            # close the current subpath: emit Z once, consume nothing else and
+            # drop the command so following numbers are not re-dispatched as Z.
             cmds.append(("Z",))
-            i += 1
-            if i < len(tokens) and tokens[i][0]:
-                continue
-        if i == prev_i:
+            cur = None
+        if i == prev_i and not is_letter:
             i += 1
     return cmds
 
@@ -503,15 +505,18 @@ def stroke_polyline(canvas, pts, width, painter, linecap="butt", linejoin="miter
         return
     half = width / 2.0
     if dasharray:
-        _stroke_dashed(canvas, pts, width, half, painter, linecap, dasharray)
-        return
+        pattern = _dash_pattern(dasharray)
+        if pattern:
+            _stroke_dashed(canvas, pts, width, half, painter, linecap, linejoin, pattern)
+            return
+        # unusable pattern: ignore the dashes rather than spinning on them
     _stroke_solid(canvas, pts, half, painter, linecap, linejoin, closed)
 
 
 def _stroke_solid(canvas, pts, half, painter, linecap, linejoin, closed):
     for i in range(len(pts) - 1):
         _stroke_segment(canvas, pts[i], pts[i + 1], half, painter)
-    if closed and len(pts) > 2:
+    if closed and len(pts) > 2 and pts[-1] != pts[0]:
         _stroke_segment(canvas, pts[-1], pts[0], half, painter)
     # caps / joins
     if linecap == "round" or linejoin == "round":
@@ -537,59 +542,75 @@ def _stroke_segment(canvas, p0, p1, half, painter):
     fill_polylines(canvas, [quad], "nonzero", painter)
 
 
-def _stroke_dashed(canvas, pts, width, half, painter, linecap, dash):
+def _dash_pattern(dash):
+    """Normalise a dash array: drop non-positive entries, make the count even.
+
+    Returns None when nothing usable is left (the caller then ignores the
+    dashes instead of looping on a zero-length pattern).
+    """
     pattern = dash if isinstance(dash, list) else parse_float_list(dash)
-    if not pattern:
-        return
     pattern = [p for p in pattern if p > 0]
     if not pattern:
+        return None
+    if len(pattern) % 2:
+        pattern = pattern * 2  # odd counts repeat, so a single entry alternates
+    return pattern
+
+
+_DASH_STEP_CAP = 1000000
+
+
+def _stroke_dashed(canvas, pts, width, half, painter, linecap, linejoin, pattern):
+    """Embroider a dashed polyline by walking it once, by arc length.
+
+    The dash phase is carried across vertices (so it does not restart per
+    segment) and every step consumes real distance, so the walk always
+    advances; a step cap keeps a pathological pattern from spinning.
+    """
+    period = sum(pattern)
+    if period <= 0:
         return
-    # split polyline into sub-polylines by dash pattern
-    total = sum(pattern)
-    if total <= 0:
-        return
-    runs = []
-    run = [pts[0]]
-    dist = 0.0
-    pi = 0
-    plen = 0.0
+    total = 0.0
     for i in range(1, len(pts)):
-        dx, dy = pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]
+        total += math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+    max_steps = min(_DASH_STEP_CAP, 4 * int(total / min(pattern) + 2) + 4 * len(pts) + 64)
+    runs = []
+    run = None
+    travelled = 0.0
+    steps = 0
+    for i in range(1, len(pts)):
+        x0, y0 = pts[i - 1]
+        x1, y1 = pts[i]
+        dx, dy = x1 - x0, y1 - y0
         seg = math.hypot(dx, dy)
-        if seg == 0:
+        if seg <= 0:
             continue
-        while seg > 0:
-            remaining = pattern[pi] - plen
-            if seg < remaining:
-                t = seg / math.hypot(dx, dy) if dx or dy else 0
-                newp = (pts[i - 1][0] + dx * t, pts[i - 1][1] + dy * t)
-                run.append(newp)
-                plen += seg
-                dist += seg
-                seg = 0
-            else:
-                t = remaining / math.hypot(dx, dy) if dx or dy else 0
-                newp = (pts[i - 1][0] + dx * t, pts[i - 1][1] + dy * t)
-                run.append(newp)
-                if pi % 2 == 0:
-                    runs.append(run)
-                run = [newp]
-                plen = 0.0
-                pi = (pi + 1) % len(pattern)
-                dist += remaining
-                seg -= remaining
-                if dx:
-                    dx *= 0
-                    dx = pts[i][0] - newp[0]
-                else:
-                    pass
-                dx = pts[i][0] - newp[0]
-                dy = pts[i][1] - newp[1]
-                seg = math.hypot(dx, dy) if (pts[i][0] - newp[0] or pts[i][1] - newp[1]) else 0
-    if pi % 2 == 0 and len(run) > 1:
+        ux, uy = dx / seg, dy / seg
+        pos = 0.0
+        while pos < seg and steps < max_steps:
+            phase = travelled % period
+            pi = 0
+            acc = 0.0
+            while pi + 1 < len(pattern) and acc + pattern[pi] <= phase:
+                acc += pattern[pi]
+                pi += 1
+            step = min(pattern[pi] - (phase - acc), seg - pos)
+            if step <= 0:
+                break
+            if pi % 2 == 0:
+                if run is None:
+                    run = [(x0 + ux * pos, y0 + uy * pos)]
+                run.append((x0 + ux * (pos + step), y0 + uy * (pos + step)))
+            elif run is not None:
+                runs.append(run)
+                run = None
+            pos += step
+            travelled += step
+            steps += 1
+    if run is not None and len(run) > 1:
         runs.append(run)
     for r in runs:
-        _stroke_solid(canvas, r, half, painter, "round", "miter", False)
+        _stroke_solid(canvas, r, half, painter, linecap, linejoin, False)
 
 
 def _circle_poly(cx, cy, r, n):
@@ -656,7 +677,9 @@ def resolve_gradient(grad, bbox, mat):
     stops = [(s.offset, s.color) for s in grad["stops"]]
     gmat = grad["transform"]
     if grad["units"] == "objectBoundingBox":
-        bx, by, bw, bh = bbox
+        # A caller may not have a measured object box (text lays its run out
+        # itself): fall back to the unit box instead of raising.
+        bx, by, bw, bh = bbox if bbox is not None else (0.0, 0.0, 1.0, 1.0)
         if bw <= 0:
             bw = 1.0
         if bh <= 0:
@@ -792,26 +815,41 @@ _GLYPHS = {
 _GLYPH_ADV = 6
 
 
-def text_width(text, font_size):
-    scale = font_size / 7.0
+def _text_advance(text):
+    """Advance width of a run, in glyph cells."""
     w = 0
     for ch in text:
         key = ch.upper() if ch.islower() else ch
         if key not in _GLYPHS:
             key = " "
         w += _GLYPH_ADV
-    return w * scale
+    return w
+
+
+def text_width(text, font_size):
+    return _text_advance(text) * font_size / 7.0
+
+
+def text_run_box(text, x, y, font_size, anchor="start", dx=0.0):
+    """Bounding box of a laid-out run, in the element's own user space."""
+    scale = font_size / 7.0
+    w = _text_advance(text) * scale
+    ox = x + dx
+    if anchor == "middle":
+        ox -= w / 2.0
+    elif anchor == "end":
+        ox -= w
+    return (ox, y, ox + w, y + 7.0 * scale)
+
+
+def ctm_scale(mat):
+    """Average linear scale of a matrix (user units -> device pixels)."""
+    return (math.hypot(mat.a, mat.b) + math.hypot(mat.c, mat.d)) / 2.0
 
 
 def draw_text(canvas, text, x, y, font_size, painter, anchor="start"):
     scale = font_size / 7.0
-    w = 0
-    for ch in text:
-        key = ch.upper() if ch.islower() else ch
-        if key not in _GLYPHS:
-            key = " "
-        w += _GLYPH_ADV
-    w *= scale
+    w = _text_advance(text) * scale
     ox = x
     if anchor == "middle":
         ox = x - w / 2.0
@@ -892,8 +930,9 @@ class _Renderer:
             if c is None:
                 return None, 0
             r, gg, b, a = c
+            # the colour's own alpha travels with the painter (it is applied to
+            # the sampled alpha once); only fill/stroke opacity multiplies here.
             painter = _flat_painter((r, gg, b, a))
-            op *= a / 255.0
         return painter, op
 
     def render(self, el):
@@ -978,15 +1017,22 @@ class _Renderer:
             text += (ch.text or "")
         if not text.strip():
             return
-        font_size = _number(el, "font-size", 16.0) * self.scale
+        font_size = _number(el, "font-size", 16.0)
         x = _number(el, "x", 0)
         y = _number(el, "y", 0)
         dx = _number(el, "dx", 0)
         anchor = _attr(el, "text-anchor", "start")
-        painter, op = self.painter_for(el, "fill", None)
+        saved = self.mat
+        self.mat = mat
+        painter, op = self.painter_for(el, "fill",
+                                       text_run_box(text, x, y, font_size, anchor, dx))
+        self.mat = saved
         if painter is None or op <= 0:
             return
         ax, ay = mat.xf(x + dx, y)
+        # glyph size follows the CTM (viewBox, ancestor transforms), not just
+        # the supersample factor
+        device_size = font_size * ctm_scale(mat)
         def mk(p):
             base_op = op * sub_op
             def pt(xx, yy):
@@ -995,18 +1041,16 @@ class _Renderer:
                     return None
                 return (c[0], c[1], c[2], int(min(255, c[3] * base_op)))
             return pt
-        draw_text(self.canvas, text, ax, ay, font_size, mk(painter), anchor)
+        draw_text(self.canvas, text, ax, ay, device_size, mk(painter), anchor)
 
 
 def _is_closed(el):
     tag = el.tag.rsplit("}", 1)[-1]
-    if tag == "polygon":
+    if tag in ("polygon", "rect", "circle", "ellipse"):
         return True
     if tag == "path":
         d = el.get("d") or ""
         return d.rstrip().endswith("Z") or d.rstrip().endswith("z")
-    if tag == "rect":
-        return True
     return False
 
 
@@ -1101,6 +1145,48 @@ def shape_subpaths(el, tag):
     return []
 
 
+_PAR_FACTOR = {"Min": 0.0, "Mid": 0.5, "Max": 1.0}
+
+
+def parse_preserve_aspect_ratio(s):
+    """preserveAspectRatio -> (align, slice_flag).
+
+    `align` is either "none" or one of the x{Min,Mid,Max}Y{Min,Mid,Max} words.
+    A leading "defer" is ignored, an unknown alignment falls back to xMidYMid,
+    and a bare alignment word keeps the spec default of meet.
+    """
+    parts = (s or "").split()
+    if parts and parts[0] == "defer":
+        parts = parts[1:]
+    align = parts[0] if parts else "xMidYMid"
+    flag = parts[1] if len(parts) > 1 else ""
+    if align != "none" and (len(align) != 8 or align[0] != "x" or align[4] != "Y"
+                            or align[1:4] not in _PAR_FACTOR
+                            or align[5:8] not in _PAR_FACTOR):
+        align = "xMidYMid"
+    return align, flag == "slice"
+
+
+def viewport_matrix(width, height, vb_list, par="xMidYMid meet"):
+    """User space -> viewport pixel matrix for a root viewBox."""
+    if not vb_list or len(vb_list) < 4:
+        return Mat(1, 0, 0, 1, 0, 0)
+    vbx, vby, vbw, vbh = vb_list[0], vb_list[1], vb_list[2], vb_list[3]
+    if vbw <= 0 or vbh <= 0:
+        vbw, vbh = width, height
+    sx = width / vbw
+    sy = height / vbh
+    align, slice_flag = parse_preserve_aspect_ratio(par)
+    if align == "none":
+        return Mat(sx, 0, 0, sy, -vbx * sx, -vby * sy)
+    s = max(sx, sy) if slice_flag else min(sx, sy)
+    fx = _PAR_FACTOR[align[1:4]]
+    fy = _PAR_FACTOR[align[5:8]]
+    return Mat(s, 0, 0, s,
+               -vbx * s + (width - vbw * s) * fx,
+               -vby * s + (height - vbh * s) * fy)
+
+
 def render_to_pixels(svg_text, width=None, height=None, background=None):
     """Render SVG to a supersampled RGBA buffer. Returns (pw, ph, bytearray RGBA).
 
@@ -1131,28 +1217,8 @@ def render_to_pixels(svg_text, width=None, height=None, background=None):
     if width <= 0 or height <= 0:
         raise ValueError("Invalid output size %dx%d" % (width, height))
 
-    par = root.get("preserveAspectRatio", "xMidYMid meet").strip()
-    parts = par.split()
-    align = parts[0] if parts else "xMidYMid"
-    meet = "slice" in par or (len(parts) > 1 and parts[1] == "slice")
-
-    if vb_list:
-        vbx, vby, vbw, vbh = vb_list
-        if vbw <= 0 or vbh <= 0:
-            vbw, vbh = width, height
-        sx = width / vbw
-        sy = height / vbh
-        if align == "none":
-            s = min(sx, sy)
-        elif meet:
-            s = min(sx, sy)
-        else:
-            s = max(sx, sy)
-        ox = (width - vbw * s) / 2.0
-        oy = (height - vbh * s) / 2.0
-        base = Mat(s, 0, 0, s, ox - vbx * s, oy - vby * s)
-    else:
-        base = Mat(1, 0, 0, 1, 0, 0)
+    base = viewport_matrix(width, height, vb_list,
+                           root.get("preserveAspectRatio", "xMidYMid meet"))
 
     S = SUPERSAMPLE
     # map user coordinates -> supersampled buffer space
@@ -1166,22 +1232,28 @@ def render_to_pixels(svg_text, width=None, height=None, background=None):
     for child in list(root):
         renderer.render(child)
 
-    # downsample
+    # downsample: box filter accumulated in premultiplied space, then
+    # un-premultiplied, so partly covered pixels keep their colour instead of
+    # fading towards black (dark fringes on transparent edges).
     out = bytearray(width * height * 4)
     buf = canvas.buf
+    cnt = S * S
     for oy in range(height):
         for ox in range(width):
             r = g = b = a = 0
-            cnt = 0
             for sy in range(S):
                 for sx in range(S):
                     idx = ((oy * S + sy) * pw + (ox * S + sx)) * 4
-                    r += buf[idx]; g += buf[idx + 1]; b += buf[idx + 2]; a += buf[idx + 3]
-                    cnt += 1
+                    sa = buf[idx + 3]
+                    r += buf[idx] * sa
+                    g += buf[idx + 1] * sa
+                    b += buf[idx + 2] * sa
+                    a += sa
             idx = (oy * width + ox) * 4
-            out[idx] = r // cnt
-            out[idx + 1] = g // cnt
-            out[idx + 2] = b // cnt
+            if a:
+                out[idx] = r // a
+                out[idx + 1] = g // a
+                out[idx + 2] = b // a
             out[idx + 3] = a // cnt
 
     if background:
