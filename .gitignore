@@ -21,3 +21,8 @@ Thumbs.db
 
 # Local config
 ~/.svgen/
+
+# Scratch / local dev artefacts
+.tmp*
+*.tmp.log
+.pytest_cache/

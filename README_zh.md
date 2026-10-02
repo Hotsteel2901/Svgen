@@ -1,330 +1,315 @@
-# SVGen Studio — SVG 绘图与动画制作工具
+# SVGen Studio — SVG 绘图与动画工作室
 
-> [English](README.md) · **中文**
+> **中文** · [English](README.md)
 
-一个前后端分离的 **SVG 绘图 + 动画制作** 工作室：浏览器里直观地画图、打关键帧做动画，一键导出
-为 `PNG / JPG / BMP / WebP / GIF / MP4 / WebM`。后端可独立使用（自带 CLI），核心运算由
-**Rust 原生引擎**承担，Python 负责调度与解析，前端零依赖、纯 HTML/CSS/JS。
+一个完整的 SVG 插画 / 动画工作室：**纯 Python 后端 + 原生 Rust 光栅引擎 + 完全重写的模块化前端**。
 
----
+画出矢量图形，在关键帧时间轴上做动画，然后导出 **PNG / JPG / BMP / WebP / GIF / MP4 / WebM / SVG**。
 
-## 目录
-
-- [功能特性](#功能特性)
-- [环境要求](#环境要求)
-- [快速开始（怎么使用）](#快速开始怎么使用)
-  - [方式一：启动完整工作室（推荐）](#方式一启动完整工作室推荐)
-  - [方式二：命令行单独使用后端](#方式二命令行单独使用后端)
-  - [方式三：HTTP API](#方式三http-api)
-- [前端使用说明](#前端使用说明)
-  - [绘图工具](#绘图工具)
-  - [动画（关键帧时间轴）](#动画关键帧时间轴)
-  - [图层管理](#图层管理)
-  - [导出](#导出)
-- [后端 CLI 详解](#后端-cli-详解)
-- [HTTP API 详解](#http-api-详解)
-- [架构与分工](#架构与分工)
-- [性能基准](#性能基准)
-- [动画转视频的原理](#动画转视频的原理)
-- [常见问题 FAQ](#常见问题-faq)
-- [许可](#许可)
+```
+┌─────────────── 前端（零依赖 ES 模块）───────────────┐
+│  Canvas 编辑  ·  关键帧时间轴  ·  图层面板  ·  导出   │
+└───────────────────────┬───────────────────────────┘
+                        │  HTTP /api（同步静帧 + 异步任务 + SSE 进度）
+┌───────────────────────┴───────────────────────────┐
+│  Python 编排：SVG 解析 · SMIL 烘焙 · 几何 · 编码     │
+└───────────────────────┬───────────────────────────┘
+                        │  紧凑二进制绘制指令流（C ABI）
+┌───────────────────────┴───────────────────────────┐
+│  Rust 光栅核心：扫描线填充 · 渐变 · 混合 · GIF 编码   │
+└───────────────────────────────────────────────────┘
+```
 
 ---
 
-## 功能特性
+## 快速开始
 
-- **完整绘图工具**：选择/移动、自由笔、平滑路径、文字、矩形、圆角矩形、椭圆、直线、箭头、多边形、星形
-- **动画编辑**：底部时间轴、关键帧（X / Y / 旋转 / 缩放 / 透明度）、播放/循环、洋葱皮、逐帧拖动
-- **图层系统**：排序、重命名、复制、删除、显隐、锁定
-- **体验与稳定性**：后端断线自动检测与重连（离线时导出按钮自动禁用、恢复后弹提示）、
-  场景**自动保存**到浏览器（刷新不丢）、Toast 通知、`?` 快捷键面板、实时缩放显示、空画布引导
-- **中英文界面**：UI 支持**中文 / English**，自动跟随浏览器语言，顶栏一键切换；画布文字与导出
-  使用**内嵌 HarmonyOS Sans SC 字体**。合规说明见下方[字体合规](#harmonyos-sans-字体合规)。
+```bash
+cd backend
+python svgen.py serve --open      # 打开 http://localhost:8090
+```
 
-### HarmonyOS Sans 字体合规
+后端也可以完全独立使用：
 
-《HarmonyOS Sans 字体许可协议》（© 2021 华为终端有限公司，全文见
-`frontend/fonts/Huawei_HarmonyOS_Sans_License.txt`）授予全球范围内、免版税许可：可随任何软件
-（字体软件除外）**使用、复制、合并、嵌入、捆绑、分发和/或销售未修改副本**，并附条件如下，我们逐条满足：
+```bash
+python svgen.py info                             # 平台与工具探测
+python svgen.py engines                          # 渲染链路与可用格式
+python svgen.py validate art.svg                 # 校验 + 动画时间轴
+python svgen.py render art.svg -f png -o out.png
+python svgen.py render art.svg -f mp4 --duration 2 --fps 30 -o out.mp4
+python svgen.py render art.svg -f gif --width 640 --height 360 -o out.gif
+cat art.svg | python svgen.py render - -f webp -o out.webp
+python svgen.py build-rs                         # 编译原生 Rust 引擎（需要 cargo）
+```
 
-| 协议条件 | 我们的落实 |
-|---|---|
-| **在软件中显著标注使用了 HarmonyOS Sans 字体** | 应用底栏常驻提示；`?`/F1 关于面板含完整声明与协议引用；仓库根目录 `NOTICE` 文件；中英文 README 各有一节。 |
-| **不得修改字体** | 打包的是官方**原始未修改 TTF**，逐字节一致（SHA-256 已核验，见下）。不做任何格式转换（无 WOFF2）、不子集化、不改动。 |
-| **不得单独分发/销售** | 字体仅随本软件捆绑，绝不单独出售或分发。 |
-| **保留版权声明与本协议** | 与官方逐字一致的**完整**协议随字体存放于 `frontend/fonts/`；保留 © 2021 华为终端有限公司版权声明。 |
+## 环境要求
 
-随附字体校验值（SHA-256，与官方分发文件一致）：
+| 组件 | 是否必需 | 说明 |
+| --- | --- | --- |
+| **Python 3.9+** | 必需 | 核心渲染零第三方依赖 |
+| **cargo** | 可选 | 一次性编译原生引擎；缺失时自动回退 |
+| **ffmpeg** | 可选 | 仅 `mp4` / `webm` 需要（`gif` 不需要） |
+| **Chrome / Edge / Firefox** | 可选 | 最高保真渲染（真实字体、CJK 文本、完整 SVG） |
+| **Pillow** | 可选 | `jpg` / `webp` 静帧与测试断言 |
+
+`python svgen.py info` 会报告本机实际可用的一切。
+
+---
+
+## 前端（全新架构）
+
+完全重写：ES 模块、无框架、无构建步骤、无第三方依赖。原来的 8 个全局脚本变成 33 个职责明确的模块。
+
+```
+frontend/
+├── index.html
+├── css/
+│   ├── tokens.css        设计令牌：颜色 / 字体 / 间距 / 动效 / 明暗主题
+│   ├── base.css          重置、排版、焦点环、滚动条、无障碍
+│   ├── components.css    按钮、输入、滑杆、色板、菜单、弹窗、提示
+│   ├── layout.css        应用外壳栅格：顶栏 / 工具栏 / 画布 / 侧栏 / 时间轴
+│   ├── panels.css        属性、图层、导出、关于面板
+│   └── timeline.css      走带、标尺、轨道、关键帧
+└── js/
+    ├── main.js           入口：装配外壳、按键映射
+    ├── core/             —— 与界面无关的引擎
+    │   ├── scene.js        文档模型、选择、变更与快照
+    │   ├── history.js      撤销 / 重做（快照式，可合并连续编辑）
+    │   ├── elements.js     图元定义、几何、边界、命中测试、SVG 路径
+    │   ├── anim.js         关键帧、缓动（含三次贝塞尔求解）、采样
+    │   ├── transform.js    2D 仿射变换工具
+    │   ├── render.js       Canvas 渲染器（棋盘格、洋葱皮、选择手柄）
+    │   ├── svg-export.js   场景 → SVG（SMIL，按后端契约采样）
+    │   ├── svg-import.js   SVG → 场景（变换、样式、`<use>`）
+    │   ├── svg-path.js     路径解析（M/L/H/V/C/S/Q/T/A/Z，弧线展开）
+    │   ├── color.js        颜色解析与转换
+    │   ├── util.js         通用工具
+    │   └── emitter.js      微型事件器
+    ├── ui/               —— 面板与外壳
+    │   ├── app.js          应用对象：文档、历史、播放、文件、后端
+    │   ├── stage.js        视口、缩放、平移、渲染循环
+    │   ├── dock.js         右侧面板容器
+    │   ├── inspector.js    属性 / 变换 / 外观 / 文本 / 动画 / 对齐
+    │   ├── layers.js       图层列表（拖拽排序、显隐、锁定、重命名）
+    │   ├── exportpane.js   导出（格式、引擎、进度、取消）
+    │   ├── infopane.js     关于、后端状态、字体声明、快捷键
+    │   ├── timeline.js     时间轴（走带、属性轨、关键帧、播放头）
+    │   ├── rail.js         左侧工具栏与取色
+    │   ├── topbar.js       顶栏
+    │   ├── controls.js     可复用控件（数值拖动、滑杆、色板…）
+    │   ├── icons.js        内联 SVG 图标集（24×24，无 emoji）
+    │   └── shell.js        提示、弹窗、菜单、工具提示、主题
+    ├── tools/index.js    交互：选择、变换、绘制、曲线、取色
+    ├── net/api.js        后端客户端（任务队列 + SSE + 断线重连）
+    └── i18n/index.js     中英双语（默认中文）
+```
+
+### 设计语言
+
+- **单一强调色**：青柠 `#cbff4d`，只用于状态与主动作
+- **中性石墨底**：图形才是主角，界面退到后面
+- **自绘线性图标**：24×24 描边图标，零 emoji、零图标字体
+- **发丝级分隔线**替代重阴影，仅浮层使用投影
+- **动效克制**：90–240ms，`prefers-reduced-motion` 下全部关闭
+- **明暗双主题**，令牌驱动，一键切换
+- 完整的 `:focus-visible` 焦点环与键盘可达性
+
+### 功能
+
+**绘制** — 选择 / 平移 / 取色、自由手绘、曲线（逐点点击）、文字、矩形、圆角矩形、
+椭圆、直线、箭头、多边形、星形；`Shift` 等比约束、`Alt` 从中心绘制、网格吸附。
+
+**编辑** — 多选、框选、拖拽排序、复制粘贴、再制、对齐（6 向）、翻转、
+层级调整、撤销 / 重做（连续编辑自动合并）、方向键微调。
+
+**变换手柄** — 8 个缩放手柄 + 旋转手柄；**旋转过的图形缩放时锚点保持不动**
+（手柄数学在图形自身的未旋转、未缩放空间里做）。
+
+**图层** — 拖拽重排、显隐、锁定、双击重命名、关键帧计数、右键菜单。
+
+**时间轴** — 走带、标尺（帧 / 秒刻度）、可折叠的属性子轨、
+颜色区分的关键帧菱形、拖动改时间、右键改缓动 / 删除、
+播放头拖动、洋葱皮、循环、吸附到帧。
+
+**导出** — `SVG / PNG / JPG / WebP / BMP / GIF / MP4 / WebM`，
+画布尺寸与预设、背景色或透明、时长 / 帧率 / 质量、渲染引擎选择、
+本机能力实时回显、**实时进度 + 取消**（视频渲染走任务队列）。
+
+**工程文件** — `.svgen.json` 保存 / 打开、拖放导入、自动保存到浏览器、SVG 导入。
+
+**国际化** — 中文（默认）与英文，顶栏一键切换，选择会被记住。
+
+### 快捷键
+
+| 键 | 作用 | 键 | 作用 |
+| --- | --- | --- | --- |
+| `V` | 选择 | `R` / `U` | 矩形 / 圆角矩形 |
+| `P` | 自由手绘 | `O` | 椭圆 |
+| `B` | 曲线 | `L` / `A` | 直线 / 箭头 |
+| `T` | 文字 | `G` / `S` | 多边形 / 星形 |
+| `H` | 平移 | `I` | 取色 |
+| `空格` | 播放 / 暂停 | `K` | 在播放头打关键帧 |
+| `[` / `]` | 上 / 下一个关键帧 | `Home` / `End` | 到开头 / 结尾 |
+| `Ctrl+Z` | 撤销 | `Ctrl+Shift+Z` | 重做 |
+| `Ctrl+D` | 再制 | `Delete` | 删除 |
+| `Ctrl+A` | 全选 | `Ctrl+C/V` | 复制 / 粘贴 |
+| `Ctrl+S` | 保存工程 | `Ctrl+O` | 打开工程 |
+| `Shift+1` | 适应窗口 | `Ctrl+0` | 实际大小 |
+| `Ctrl+'` | 网格 | `Ctrl+Shift+O` | 洋葱皮 |
+| `?` / `F1` | 关于与快捷键 | `Esc` | 取消当前操作 |
+
+鼠标：中键拖动或按住空格平移 · `Ctrl+滚轮` 以光标为中心缩放 · 空画布拖动框选 · `Shift+点击` 加选。
+
+---
+
+## 后端
+
+### 渲染链
+
+按顺序尝试，逐级回退：
+
+1. **无头浏览器**（Chrome / Edge / Firefox）—— 最高保真：真实字体、CJK、完整 SVG
+2. **原生 Rust 引擎** —— 无需浏览器，几何 / 变换 / 渐变在 Python 侧共享
+3. **纯 Python 光栅器** —— 零依赖兜底，永远可用
+
+### CLI
+
+| 命令 | 说明 |
+| --- | --- |
+| `svgen info` | 操作系统、架构、文件系统模式、工具可用性 |
+| `svgen engines` | 渲染链、可用格式、引擎路径 |
+| `svgen validate <file.svg>` | 解析并输出 SMIL 动画时间轴 |
+| `svgen render <file.svg> [-f FORMAT]` | 渲染为 `png/jpg/bmp/webp/gif/mp4/webm`，输入 `-` 表示 stdin |
+| `svgen serve [--port] [--host] [--static] [--open]` | 启动 HTTP API + 前端 |
+| `svgen logs on\|off` | 持久化日志开关 |
+| `svgen build-rs [--debug]` | 编译原生 Rust 引擎 |
+
+渲染参数：`--width`、`--height`、`--duration`、`--fps`、`--background`、
+`--engine auto|chrome|firefox|rust|raster`、`--quality`、`-o/--output`。
+
+### HTTP API
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/health` | 心跳（前端在线探测） |
+| GET | `/api/info` | 平台、能力、渲染链、限制 |
+| GET | `/api/engines` | 引擎报告 |
+| GET/POST | `/api/logs` | 读取 / 切换日志 |
+| POST | `/api/validate` | 校验 SVG，返回动画时间轴与提示 |
+| POST | `/api/render` | 同步渲染，返回字节 |
+| POST | `/api/export` | 同步渲染，带下载文件名 |
+| POST | `/api/jobs` | **异步渲染任务** → `{id}` |
+| GET | `/api/jobs` | 最近任务列表 |
+| GET | `/api/jobs/<id>` | 任务状态与进度 |
+| GET | `/api/jobs/<id>/events` | **SSE 进度流** |
+| GET | `/api/jobs/<id>/result` | 取回结果字节 |
+| DELETE | `/api/jobs/<id>` | 取消任务 |
+| GET | `/` | 工作室前端 |
+
+`POST /api/jobs` 请求体：
+`{ svg, format, width, height, duration, fps, background, engine, quality, name }`
+
+```bash
+# 同步导出静帧
+curl -X POST http://localhost:8090/api/export \
+  -H 'Content-Type: application/json' \
+  -d '{"svg":"<svg xmlns=...>...</svg>","format":"png","width":800,"height":600,"name":"art"}' \
+  -o art.png
+
+# 异步导出视频并跟踪进度
+ID=$(curl -s -X POST http://localhost:8090/api/jobs \
+  -H 'Content-Type: application/json' \
+  -d @job.json | python -c "import sys,json;print(json.load(sys.stdin)['job']['id'])")
+curl -N http://localhost:8090/api/jobs/$ID/events
+curl -o out.mp4 http://localhost:8090/api/jobs/$ID/result
+```
+
+### 动画 → 视频的原理
+
+1. 前端保存图形与关键帧（`x, y, rotation, scaleX, scaleY, opacity, strokeWidth`）。
+2. 导出时序列化为 SVG：每个变换分量一个 `<g>`，每个分量一个 `<animateTransform>`，
+   并用 `data-svgen-parent` 明确指向要驱动的分组。
+3. **插值在前端完成**：按导出帧率均匀采样，把真实缓动曲线烘进 `values` 列表。
+   因此 Chrome、Firefox、Rust、Python 四个引擎看到的运动完全一致 —— 它们都不需要理解 `keySplines`。
+4. 后端逐帧**烘焙**：采样每个动画、写入目标属性、剥离 `<animate>` 节点，得到静态 SVG。
+5. 帧被光栅化并流式送入 ffmpeg（`mp4` / `webm`）或 GIF 编码器。
+
+---
+
+## 测试
+
+```bash
+cd backend
+python tests/test_pipeline.py          # 34 项后端检查（烘焙、引擎、格式、边界、回归）
+python tests/test_pipeline.py --fast   # 跳过较慢的视频渲染
+python tests/test_studio_ui.py         # 真实浏览器端到端（需 playwright + 已启动的服务器）
+```
+
+`test_studio_ui.py` 会用真实工具栏画图、按 `K` 打关键帧、然后通过导出面板产出
+PNG / GIF / SVG 并在磁盘上校验（含 GIF 帧数）。它同时断言**浏览器控制台零报错**。
+
+覆盖到的关键回归：SMIL 烘焙真的在动、`fill="remove"` 之后恢复原值、
+有限 `repeatCount` 会循环、透明度是渐变而不是硬切、
+不透明背景不再抹掉画面、`stroke-dasharray` 不再死循环、
+Rust 与 Python 在抗锯齿边缘逐像素一致、超大画布返回错误而不是崩进程、
+NaN 坐标不会打死引擎。
+
+---
+
+## HarmonyOS Sans 字体合规
+
+HarmonyOS Sans 字体许可协议（© 2021 华为终端有限公司，全文见
+`frontend/fonts/Huawei_HarmonyOS_Sans_License.txt`）授予免版税、全球范围许可，
+允许*使用、复制、合并、嵌入、捆绑、再分发和/或销售**未经修改**的副本……与任何软件
+（字体软件除外）*，我们按如下方式满足其条件：
+
+| 协议条件 | 满足方式 |
+| --- | --- |
+| **显著声明使用了 HarmonyOS Sans 字体** | 状态栏常驻声明；关于面板（`?` / F1）中的完整声明与许可引用；仓库 `NOTICE`；两版 README |
+| **不修改字体** | 随附 TTF 为官方文件，逐字节一致（SHA-256 已校验）。不转换（不做 WOFF2）、不子集化、不编辑 |
+| **不单独再分发 / 销售** | 字体仅随本软件捆绑，绝不单独分发或销售 |
+| **保留版权声明与协议** | 逐字完整的协议随字体一同分发；© 2021 华为版权声明保留 |
+
+随附字体校验和（SHA-256，与官方发布文件一致）：
 
 ```
 frontend/fonts/HarmonyOS_SansSC_Regular.ttf   984CF609545ACEE8EF060780FB70FC3099B058C0553416331B6E863FDF7C26FA
 frontend/fonts/HarmonyOS_SansSC_Bold.ttf      C215D8AB1CB6709FEC2E063F8213E9AF86D7587D345B56325E36B67D6B947D98
-frontend/fonts/Huawei_HarmonyOS_Sans_License.txt  （与官方协议文本完全一致）
+frontend/fonts/Huawei_HarmonyOS_Sans_License.txt  （与官方协议文本一致）
 ```
 
 *HarmonyOS 是华为终端有限公司的商标。*
-- **多种导出格式**：SVG / PNG / JPG / BMP / WebP / GIF / MP4 / WebM
-- **多渲染引擎**：Rust（原生，最快）→ Chrome/Edge/Firefox（真实字体、CJK 中文，最高保真）→ 纯 Python（零依赖兜底）
-- **Firefox / Gecko 兼容**：前端基于标准 API（Canvas2D、Pointer Events、fetch），任何现代浏览器均可使用；后端 headless 渲染自动识别并支持 Firefox，导出中文时请选浏览器引擎（Gecko 无法输出透明背景 PNG，透明导出会自动回退 Rust）
-- **系统自适应**：自动识别 Windows / Linux / macOS 及架构，选择对应文件系统与临时目录
-- **日志可开关**：`svgen logs on|off` 持久化，服务器运行中可 `POST /api/logs` 实时切换
-- **后端可独立使用**：完整 CLI + HTTP API，不依赖前端
-
----
-
-## 环境要求
-
-| 组件 | 要求 | 说明 |
-|---|---|---|
-| Python | 3.9+ | 核心功能无需任何第三方库 |
-| Rust (cargo) | 可选 | 仅用于编译原生引擎（`python svgen.py build-rs`）；不装则自动回退纯 Python |
-| ffmpeg | 可选 | 仅 `mp4` / `webm` 导出需要；`gif` 为纯 Rust/Python 实现 |
-| Chrome / Edge / Firefox | 可选 | 存在时自动用于最高保真渲染（真实字体、中文）；都没有则用 Rust 引擎 |
-| Pillow | 可选 | 仅 `jpg` / `webp` 静态图需要 |
-
-运行 `python svgen.py info` 可查看本机各项能力是否就绪。
-
----
-
-## 快速开始（怎么使用）
-
-### 方式一：启动完整工作室（推荐）
-
-```bash
-cd backend
-python svgen.py serve --open
-```
-
-浏览器自动打开 `http://127.0.0.1:8090`，直接开始画图、做动画、导出。
-
-### 方式二：命令行单独使用后端
-
-```bash
-# 查看系统架构与引擎能力
-python svgen.py info
-
-# 校验 SVG 并查看动画时间轴
-python svgen.py validate art.svg
-
-# 渲染静态图
-python svgen.py render art.svg -f png -o out.png
-python svgen.py render art.svg -f jpg --width 1920 --height 1080 -o out.jpg
-
-# 渲染动画视频（动画 SVG 自动逐帧烘焙）
-python svgen.py render art.svg -f mp4 --duration 2 --fps 30 -o out.mp4
-python svgen.py render art.svg -f gif --duration 2 --fps 12 -o out.gif
-
-# 从标准输入读取
-cat art.svg | python svgen.py render - -f webp -o out.webp
-
-# 指定渲染引擎（auto 自动选择；也可强制 rust / chrome / firefox / raster）
-python svgen.py render art.svg -f png --engine rust -o out.png
-python svgen.py render art.svg -f png --engine firefox -o out.png   # 用 Firefox/Gecko 渲染（真实中文）
-
-# 编译原生 Rust 引擎
-python svgen.py build-rs
-
-# 开关日志
-python svgen.py logs on
-python svgen.py logs off
-```
-
-### 方式三：HTTP API
-
-```bash
-curl -X POST http://127.0.0.1:8090/api/export \
-  -H 'Content-Type: application/json' \
-  -d '{"svg":"<svg xmlns=...>...</svg>","format":"png","width":800,"height":600,"name":"art"}' \
-  -o art.png
-```
-
----
-
-## 前端使用说明
-
-### 绘图工具
-
-左侧工具栏选择工具后在画布上拖拽即可：
-
-| 工具 | 快捷键 | 说明 |
-|---|---|---|
-| 选择 / 移动 | `V` | 点选形状，拖动移动，拖角点缩放，拖顶部圆点旋转 |
-| 自由笔 | `P` | 鼠标拖动画曲线 |
-| 平滑路径 | `B` | 自由曲线路径 |
-| 文字 | `T` | 点击放置文字，右侧面板修改内容 |
-| 矩形 / 圆角矩形 | `R` | 拖拽绘制，`Shift` 锁定正方形 |
-| 椭圆 | `O` | `Shift` 锁定正圆 |
-| 直线 / 箭头 | `L` / `A` | `Shift` 吸附 45° |
-| 多边形 | `G` | 右侧面板可调边数 |
-| 星形 | `S` | 右侧面板可调角数 |
-
-顶栏还有：网格开关、缩放/适应、撤销重做（`Ctrl+Z` / `Ctrl+Y`）、导入 SVG、保存/打开工程（`.svgen.json`）。
-
-### 动画（关键帧时间轴）
-
-1. 选中画布上的一个形状
-2. 在时间轴上方选择要动画的属性（X / Y / Rot / Scale / Opacity）
-3. 把播放头拖到某个时间点，点击 **“◆ Add key”**（或按 `K`）打上关键帧
-4. 移动形状 / 改属性，到下一个时间点再打一帧 —— 自动生成补间动画
-5. 点 ▶ 播放，🔁 循环，`Onion` 洋葱皮查看前后帧
-
-关键帧彩色菱形可直接拖动换时间、双击删除；`⏮/⏭` 跳到上一个/下一个关键帧。播放时长与 FPS 可在时间轴右上角设置。
-
-### 图层管理
-
-右侧 **Layers** 标签页：点选图层、眼睛按钮显隐、锁按钮锁定、双击重命名、▲▼ 调整层级（越上层越靠前）、⧉ 复制、🗑 删除。
-
-### 导出
-
-右侧 **Export** 标签页：
-
-1. 设置画布宽高、背景色
-2. 选择格式（SVG / PNG / JPG / BMP / WebP / GIF / MP4 / WebM）
-3. 视频类选择时长与 FPS
-4. 选择渲染引擎（Auto / Chrome / Firefox / Rust / Python）
-5. 点击 **Export & Download**，文件自动下载；也可单独复制/下载 SVG
-
-面板顶部会实时显示后端能力（Rust / 浏览器 / ffmpeg / Pillow 是否就绪）。
-**Firefox 用户**：界面与导出面板完全兼容；需要真实中文字体导出时选 “Browser (Firefox/Gecko)”。
-
----
-
-## 后端 CLI 详解
-
-```
-svgen info                     查看系统信息与引擎能力
-svgen validate <file.svg>      校验 SVG 并打印动画时间轴
-svgen render <file.svg>        渲染，输入 - 表示 stdin
-    -f, --format    png|jpg|bmp|webp|gif|mp4|webm
-    --width/--height            输出尺寸
-    --duration/--fps            视频时长(秒)/帧率
-    --background                背景色(hex)
-    --engine        auto|chrome|rust|raster
-    --quality                   JPEG/MP4 质量
-    -o, --output                输出文件
-svgen serve [--port] [--host] [--static] [--open] [--logs on|off]
-svgen logs on|off               持久化日志开关（~/.svgen/config.json）
-svgen build-rs [--debug]        编译原生 Rust 引擎
-    --quiet / --verbose          本次调用的日志级别
-```
-
----
-
-## HTTP API 详解
-
-| 方法 | 路径 | 用途 |
-|---|---|---|
-| GET | `/api/health` | 心跳与版本 |
-| GET | `/api/info` | 系统信息 + 引擎能力 |
-| GET/POST | `/api/logs` | 读取 / 切换后端日志 |
-| POST | `/api/validate` | 校验 SVG + 返回动画时间轴 |
-| POST | `/api/export` | 渲染任意格式并返回文件 |
-| GET | `/` | 前端工作室页面 |
-
-`POST /api/export` 请求体：
-
-```json
-{
-  "svg": "<svg ...>...</svg>",
-  "format": "mp4",
-  "width": 1280,
-  "height": 720,
-  "duration": 2,
-  "fps": 30,
-  "background": "#ffffff",
-  "engine": "auto",
-  "quality": 28,
-  "name": "artwork"
-}
-```
-
----
-
-## 架构与分工
-
-```
-[浏览器]  JS 建模(形状+关键帧) ──生成 SVG(SMIL)──▶ [Python] animate.py 逐帧烘焙
-   │                                                      │
-   │  前端：HTML/CSS 界面 · JS 交互/模型/时间轴           ▼
-   │                                                      [Python] rsops.py 几何→二进制绘制命令
-   │                                                      │
-   │                                                      ▼
-   │                                              [Rust] svgen_rs 栅格化 → RGBA
-   │                                                      │
-   │                                                      ▼
-   │                                        [Python] images.py / ffmpeg → PNG/JPG/GIF/MP4/WebM
-   ▼
-用户下载成品
-```
-
-| 部分 | 语言 | 负责内容 |
-|---|---|---|
-| 界面 | HTML / CSS | 页面结构、现代深色 UI、布局与过渡 |
-| 前端逻辑 | JS | 场景数据模型、关键帧插值、SVG+SMIL 序列化、Canvas 绘制、绘图工具、时间轴、导出面板、后端 API 客户端 |
-| 像素运算 | **Rust** | 扫描线多边形填充、渐变逐像素采样、alpha 混合、超采样降采样、GIF 编码（中值切割 + LZW）——性能核心 |
-| 编排调度 | Python | 系统/架构检测、SMIL 动画烘焙、几何→二进制命令流、引擎选择、图像/视频编码封装、HTTP API、CLI、日志 |
-
-几何构建（约 13ms/帧）与 SMIL 烘焙（约 5ms/帧）经实测几乎无开销，故保留在 Python；真正的热循环全部在 Rust。
 
 ---
 
 ## 性能基准
 
-同一台机器（Windows 11 / AMD64）实测：
+原生引擎承担真正的热点：扫描线多边形填充、渐变采样、alpha 混合、
+超采样降采样，以及 GIF 编码（中位切分量化 + LZW）。
 
 | 负载 | 纯 Python | Rust 引擎 | 加速比 |
-|---|---|---|---|
-| 静态 PNG 800×600（渐变 + 30 圆 + 路径） | 3.94 s | 0.047 s | **83×** |
-| 视频 24 帧 @ 640×360 | 54.91 s | 0.752 s | **73×** |
-| 动画 GIF 320×240 × 12 帧 | >420 s（无法完成） | 0.023 s | **>18 000×** |
+| --- | --- | --- | --- |
+| 静帧 PNG 800×600（渐变 + 30 圆 + 路径） | 3.94 s | 0.047 s | **83×** |
+| 视频 24 fps × 1 s @ 640×360 | 54.91 s | 0.752 s | **73×** |
+| 动画 GIF 320×240 × 12 帧 | 不可用 | 0.023 s | **>18000×** |
 
-> 注：Python 版 GIF 编码器存在二次方归并问题，小图都无法完成，已由 Rust 重写为主路径（Python 仅作兜底）。
-
----
-
-## 动画转视频的原理
-
-1. 前端把形状 + 关键帧序列化为带 SMIL（`<animate>` / `<animateTransform>`）的 SVG
-2. 后端 `animate.py` **逐帧烘焙**：对每个时间点采样动画、把插值结果写回目标元素、移除 `<animate>` 节点，得到一帧静态 SVG
-3. 帧交给 Rust（或浏览器 / 纯 Python）栅格化
-4. 逐帧送入 ffmpeg 生成 `mp4` / `webm`，或用内置编码器生成 `gif`
+几何提取与 SMIL 烘焙每帧约 10 ms / 5 ms，可以忽略，因此留在 Python 侧。
 
 ---
 
-## 常见问题 FAQ
+## 已知限制
 
-**Q：不装 Rust 能用吗？**
-可以。`svgen info` 会显示 Rust 是否就绪；没有编译好的引擎时自动回退纯 Python 栅格器与 Python GIF 编码，功能完整，只是慢。
-
-**Q：Rust 引擎找不到 / 报错？**
-```bash
-python svgen.py build-rs     # 需要 cargo
-```
-或在 `backend/rust/svgen_rs` 下执行 `cargo build --release`，编译产物位于 `target/release/`。
-
-**Q：MP4 导出报错？**
-需要 ffmpeg 在 PATH 中（`svgen info` 可检测）。缺 ffmpeg 时可改用 GIF/WebP。
-
-**Q：中文文字导出不显示？**
-纯 Rust/Python 栅格使用内置 5×7 点阵字体（仅 ASCII）；需要真实中文字体时把渲染引擎选为
-**Firefox / Chrome**（浏览器引擎）即可。
-
-**Q：我是 Firefox 重度用户，能正常使用吗？**
-能。前端界面用标准 API（Canvas2D、Pointer Events），与内核无关；后端会自动识别本机 Firefox
-并用它做最高保真渲染（含中文）。`svgen info` 可查看是否检测到 Firefox。
-注意 Gecko 的 headless 截图不支持透明背景，透明导出时会自动回退到 Rust 引擎。
-
-**Q：前端连不上后端？**
-确认 `python svgen.py serve` 正在运行、端口未占用。前端每 8 秒自动检测后端状态：离线时顶部指示点变红、
-导出按钮自动禁用，后端恢复后自动重连并弹出提示。
+- 内置的 Python / Rust 光栅器使用 7×7 点阵字体渲染文本：
+  ASCII 可用，**CJK 会变成空白**。需要中文文本请使用浏览器引擎（默认 `auto` 会优先选它）。
+- 这两个引擎目前也不支持跨子路径的镂空（evenodd 洞）、`clip-path`、`mask`、`<image>`。
+- 渐变在导入时以端点平均色近似（前端模型目前只存纯色填充）。
+- 路径上的描边虚线长度按缓冲空间计算，视觉上约为标称值的 `1/SUPERSAMPLE`。
 
 ## 许可
 
-[MIT](LICENSE) —— 取自权威 [Open Source Initiative](https://opensource.org/license/mit) /
-[SPDX MIT](https://spdx.org/licenses/MIT.html) 官方文本。Copyright (c) 2026 SVGen Studio contributors。
+[MIT](LICENSE) —— 文本取自权威的 [Open Source Initiative](https://opensource.org/license/mit)
+/ [SPDX MIT](https://spdx.org/licenses/MIT.html)。Copyright (c) 2026 SVGen Studio contributors。
 
 ---
 
-## 许可
-
-MIT License。详见仓库 License 声明（可自行补充）。
+**[English](README.md) · 中文**
