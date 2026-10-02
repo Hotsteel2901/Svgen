@@ -2,29 +2,40 @@
 
 import { icon } from "./icons.js";
 import { h, attachTooltip, menu, theme } from "./shell.js";
+import { openBrushMenu } from "./contextmenu.js";
+import { RAIL_GROUP_COLOR } from "./palette.js";
 import { t } from "../i18n/index.js";
 import { toHex, parseColor, toOpaqueHex } from "../core/color.js";
 
 const TOOL_GROUPS = [
-  [
-    { id: "select", icon: "cursor", key: "V" },
-    { id: "hand", icon: "hand", key: "H" },
-    { id: "eyedropper", icon: "eyedropper", key: "I" },
-  ],
-  [
-    { id: "pen", icon: "pen", key: "P" },
-    { id: "path", icon: "path", key: "B" },
-    { id: "text", icon: "text", key: "T" },
-  ],
-  [
-    { id: "rect", icon: "rect", key: "R" },
-    { id: "rounded", icon: "rounded", key: "U" },
-    { id: "ellipse", icon: "ellipse", key: "O" },
-    { id: "line", icon: "line", key: "L" },
-    { id: "arrow", icon: "arrow", key: "A" },
-    { id: "polygon", icon: "polygon", key: "G" },
-    { id: "star", icon: "star", key: "S" },
-  ],
+  {
+    id: "select",
+    tools: [
+      { id: "select", icon: "cursor", key: "V" },
+      { id: "hand", icon: "hand", key: "H" },
+      { id: "eyedropper", icon: "eyedropper", key: "I" },
+    ],
+  },
+  {
+    id: "draw",
+    tools: [
+      { id: "pen", icon: "pen", key: "P" },
+      { id: "path", icon: "path", key: "B" },
+      { id: "text", icon: "text", key: "T" },
+    ],
+  },
+  {
+    id: "shape",
+    tools: [
+      { id: "rect", icon: "rect", key: "R" },
+      { id: "rounded", icon: "rounded", key: "U" },
+      { id: "ellipse", icon: "ellipse", key: "O" },
+      { id: "line", icon: "line", key: "L" },
+      { id: "arrow", icon: "arrow", key: "A" },
+      { id: "polygon", icon: "polygon", key: "G" },
+      { id: "star", icon: "star", key: "S" },
+    ],
+  },
 ];
 
 export class Rail {
@@ -41,7 +52,9 @@ export class Rail {
 
     for (const group of TOOL_GROUPS) {
       const wrap = h("div", { class: "rail-group" });
-      for (const tool of group) {
+      wrap.style.setProperty("--group-color", RAIL_GROUP_COLOR[group.id] || "var(--text-mute)");
+      wrap.dataset.group = group.id;
+      for (const tool of group.tools) {
         const btn = h("button", {
           class: "tool",
           type: "button",
@@ -59,6 +72,8 @@ export class Rail {
 
     // paint swatches
     const swatchGroup = h("div", { class: "rail-group" });
+    swatchGroup.style.setProperty("--group-color", RAIL_GROUP_COLOR.style);
+    swatchGroup.dataset.group = "style";
     const stack = h("div", { class: "swatch-stack" });
     this.fillSwatch = this._swatch("fg", () => this.app.paint.fill, (c) => this.app.setFill(c));
     this.strokeSwatch = this._swatch("bg", () => this.app.paint.stroke, (c) => this.app.setStroke(c));
@@ -68,15 +83,34 @@ export class Rail {
     stack.append(this.fillSwatch, this.strokeSwatch, swap);
     swatchGroup.appendChild(stack);
 
-    const widthBtn = h("button", { class: "tool", type: "button", html: icon("sliders", 16) });
-    attachTooltip(widthBtn, t("tool.strokeWidth"));
-    widthBtn.addEventListener("click", (evt) => this._strokeWidthMenu(evt));
+    const widthBtn = h("button", {
+      class: "tool",
+      type: "button",
+      dataset: { tool: "brush" },
+      html: icon("sliders", 16),
+    });
+    attachTooltip(widthBtn, t("brush.settings"), "B");
+    widthBtn.addEventListener("click", (evt) => openBrushMenu(this.app, evt.currentTarget));
     swatchGroup.appendChild(widthBtn);
 
     this.root.appendChild(swatchGroup);
+
+    // A dedicated freehand pen lives next to the brush settings so the two
+    // read as one tool group.
+    const paintGroup = h("div", { class: "rail-group" });
+    paintGroup.style.setProperty("--group-color", RAIL_GROUP_COLOR.action);
+    paintGroup.dataset.group = "action";
+    const paintBtn = h("button", { class: "tool", type: "button", dataset: { tool: "paint" }, html: icon("brush", 16) });
+    attachTooltip(paintBtn, t("doc.pickBackground"), "Shift+B");
+    paintBtn.addEventListener("click", () => this.app.fillCanvas());
+    paintGroup.appendChild(paintBtn);
+    this.root.appendChild(paintGroup);
+
     this.root.appendChild(h("div", { class: "rail-spacer" }));
 
     const bottom = h("div", { class: "rail-group" });
+    bottom.style.setProperty("--group-color", RAIL_GROUP_COLOR.action);
+    bottom.dataset.group = "action";
     const gridBtn = h("button", {
       class: "tool",
       type: "button",
@@ -167,19 +201,6 @@ export class Rail {
       },
     });
     menu(items, { x: rect.right + 8, y: rect.top });
-  }
-
-  _strokeWidthMenu(evt) {
-    const rect = evt.currentTarget.getBoundingClientRect();
-    const values = [1, 2, 3, 4, 6, 8, 12, 16, 24, 40];
-    menu(
-      values.map((v) => ({
-        label: `${v} px`,
-        icon: "sliders",
-        onClick: () => this.app.setStrokeWidth(v),
-      })),
-      { x: rect.right + 8, y: rect.top }
-    );
   }
 }
 

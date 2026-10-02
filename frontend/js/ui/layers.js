@@ -4,6 +4,7 @@ import { h, attachTooltip, menu } from "./shell.js";
 import { icon } from "./icons.js";
 import { t } from "../i18n/index.js";
 import { iconButton } from "./controls.js";
+import { elementColors, paintLabel } from "./palette.js";
 
 const TYPE_ICON = {
   rect: "rect",
@@ -79,6 +80,15 @@ export class LayersPane {
 
       const grip = h("span", { class: "grip", html: icon("grip", 10) });
       const ic = h("span", { class: "ic", html: icon(TYPE_ICON[el.type] || "box", 13) });
+
+      // The artwork's own colour, so a layer can be found by looking at it
+      // rather than by reading its name.
+      const colors = elementColors(el);
+      const chip = h("span", { class: "chip", title: paintLabel(el) });
+      chip.style.setProperty("--chip-fill", colors.fill);
+      chip.style.setProperty("--chip-stroke", colors.stroke);
+      if (el.type === "line" || el.type === "arrow" || !colors.hasFill) chip.classList.add("stroke-only");
+
       const nm = h("span", { class: "nm truncate", text: el.name || el.type });
 
       const keyCount = Object.values(el.keys).reduce((sum, arr) => sum + (arr?.length || 0), 0);
@@ -115,7 +125,7 @@ export class LayersPane {
       });
       flags.append(lockBtn, eyeBtn);
 
-      row.append(grip, ic, nm);
+      row.append(grip, chip, ic, nm);
       if (kf) row.appendChild(kf);
       row.appendChild(flags);
 
@@ -127,6 +137,7 @@ export class LayersPane {
       row.addEventListener("dblclick", () => this._rename(el, nm));
       row.addEventListener("contextmenu", (evt) => {
         evt.preventDefault();
+        evt.__svgenHandled = true;
         this.scene.select(el.id);
         this.app.onSelectionChanged();
         this._rowMenu(evt, el);

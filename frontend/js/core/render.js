@@ -107,7 +107,34 @@ export class StageRenderer {
       ctx.restore();
     }
 
+    if (opts.cursor) this._drawBrushCursor(ctx, opts.cursor, zoom);
+
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  /** Brush footprint ring: a dark outline under a light one so it reads on any
+   *  artwork, with a dot marking the exact point. */
+  _drawBrushCursor(ctx, cursor, zoom) {
+    const r = Math.max(cursor.r, 0.6);
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(cursor.x, cursor.y, r, 0, Math.PI * 2);
+    ctx.lineWidth = 2 / zoom;
+    ctx.strokeStyle = "rgba(10,11,13,0.55)";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cursor.x, cursor.y, r, 0, Math.PI * 2);
+    ctx.lineWidth = 1 / zoom;
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.stroke();
+    if (r * zoom > 5) {
+      ctx.beginPath();
+      ctx.arc(cursor.x, cursor.y, 1 / zoom, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,255,255,0.7)";
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   /* ------------------------------------------------------------ artboard */

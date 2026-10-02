@@ -233,10 +233,16 @@ export function menu(items, { x, y, align = "left" } = {}) {
     }
     const btn = document.createElement("button");
     btn.className = "menu-item" + (item.danger ? " danger" : "");
-    btn.setAttribute("role", "menuitem");
+    btn.setAttribute("role", item.checked === undefined ? "menuitem" : "menuitemcheckbox");
+    if (item.checked !== undefined) btn.setAttribute("aria-checked", String(!!item.checked));
     btn.disabled = !!item.disabled;
+    const lead = item.checked !== undefined
+      ? icon(item.checked ? "check" : "box", 14)
+      : item.icon
+        ? icon(item.icon, 14)
+        : "<span style='width:14px'></span>";
     btn.innerHTML =
-      (item.icon ? icon(item.icon, 14) : "<span style='width:14px'></span>") +
+      lead +
       `<span>${escapeXML(item.label)}</span>` +
       (item.shortcut ? `<span class="k">${escapeXML(item.shortcut)}</span>` : "");
     btn.addEventListener("click", () => {

@@ -152,8 +152,7 @@
 }
 
 /* ---------------------------------------------------------------- layers */
-.layer-tools {
-  display: flex;
+.layer-tools {  display: flex;
   align-items: center;
   gap: 2px;
   padding: var(--s2) var(--s3);
@@ -242,6 +241,36 @@
 .layer .ic svg {
   width: 13px;
   height: 13px;
+}
+
+/* The artwork's own colour — find a layer by looking, not by reading. */
+.layer .chip {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 3px;
+  background: var(--chip-fill, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--chip-stroke, transparent);
+  /* a checkerboard shows through when the fill is transparent */
+  background-image: linear-gradient(45deg, var(--line) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--line) 25%, transparent 25%);
+  background-size: 6px 6px;
+  background-blend-mode: normal;
+  position: relative;
+}
+
+.layer .chip::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--chip-fill, transparent);
+}
+
+.layer .chip.stroke-only::after {
+  inset: 3px;
+  border-radius: 2px;
+  background: var(--chip-stroke, transparent);
 }
 
 .layer .nm {

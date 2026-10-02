@@ -26,9 +26,20 @@ export function section(title, { actions = [] } = {}) {
   return { el: sec, body, head };
 }
 
-export function row(label, control) {
+/**
+ * A labelled control row. `accent` tints the label with a property colour so
+ * the inspector, the timeline tracks and the keyframe diamonds all agree.
+ */
+export function row(label, control, { accent = null, title = "" } = {}) {
+  const labelEl = h("span", { class: "label", text: label });
+  if (accent) {
+    labelEl.classList.add("accented");
+    labelEl.style.setProperty("--accent-prop", accent);
+    labelEl.prepend(h("i", { class: "pdot" }));
+  }
+  if (title) attachTooltip(labelEl, title);
   return h("div", { class: "prop" }, [
-    h("span", { class: "label", text: label }),
+    labelEl,
     h("div", { class: "ctl" }, Array.isArray(control) ? control : [control]),
   ]);
 }

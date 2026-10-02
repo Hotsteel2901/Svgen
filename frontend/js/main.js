@@ -18,6 +18,7 @@ import { TopBar } from "./ui/topbar.js";
 import { Timeline } from "./ui/timeline.js";
 import { Dock } from "./ui/dock.js";
 import { theme, closeMenu } from "./ui/shell.js";
+import { installInputCapture } from "./ui/input.js";
 
 const AUTOSAVE_KEY = "svgen.scene.v2";
 
@@ -64,6 +65,7 @@ function boot() {
 
   bindKeyboard(app);
   bindGlobalUI(app);
+  installInputCapture(app, document.getElementById("shell"));
 
   if (!scene.doc.elements.length) demoScene(app);
 
@@ -389,6 +391,11 @@ function bindKeyboard(instance) {
     if (lower === "k") {
       evt.preventDefault();
       instance.timeline.toggleKeyAtPlayhead();
+      return;
+    }
+    if (evt.shiftKey && lower === "b") {
+      evt.preventDefault();
+      instance.fillCanvas();
       return;
     }
     if (lower === "x") {

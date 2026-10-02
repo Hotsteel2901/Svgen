@@ -167,6 +167,11 @@ export class Stage {
     });
     canvas.addEventListener("contextmenu", (evt) => {
       evt.preventDefault();
+      // A right-click mid-gesture aborts it, like every other editor.
+      if (this.tools?.gesture || this.tools?.penPoints) {
+        this.tools.cancelGesture();
+        return;
+      }
       this.app?.onContextMenu?.(evt, this._pointerEvent(evt));
     });
     canvas.addEventListener("dblclick", (evt) => this.tools?.onDoubleClick?.(evt, this));
@@ -311,6 +316,7 @@ export class Stage {
       hoverId: this.editable ? this.hoverId : null,
       marquee: this.marquee,
       extra: this.tools?.draftElements?.() || [],
+      cursor: this._brushCursor(),
       editable: this.editable,
       playing: this.app?.playing,
       theme: {
@@ -319,6 +325,22 @@ export class Stage {
       },
     });
     this._syncHud();
+  }
+
+  /**
+   * A ring showing the brush footprint while a drawing tool is active, so the
+   * size is visible before the stroke starts.
+   */
+  _brushCursor() {
+    const tool = this.tools?.tool;
+    if (tool !== "pen" || !this.pointer.inside) return null;
+    const size = this.app?.brush?.size || 6;
+    return {
+      x: this.pointer.sceneX,
+      y: this.pointer.sceneY,
+      r: Math.max(0.5, size / 2),
+      color: this.app?.paint?.stroke || "#edeff3",
+    };
   }
 
   /** Render the scene into an offscreen canvas at a given pixel size. */

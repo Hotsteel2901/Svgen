@@ -16,6 +16,7 @@ import { clamp, debounce, deepClone, downloadBlob, readFileText, safeName, uid }
 import { api, Connection } from "../net/api.js";
 import { t } from "../i18n/index.js";
 import { confirmDialog, modal, toast } from "./shell.js";
+import { openCanvasMenu } from "./contextmenu.js";
 
 const AUTOSAVE_KEY = "svgen.scene.v2";
 const AUTOSAVE_DELAY = 800;
@@ -29,6 +30,8 @@ export class App extends Emitter {
     this.onEvent = onEvent || (() => {});
 
     this.paint = { fill: "#cbff4d", stroke: "#edeff3", strokeWidth: 3 };
+    /** Freehand brush. `size` drives stroke width; the rest shape the stroke. */
+    this.brush = { size: 6, opacity: 1, smoothing: 0.55, stabiliser: 0.35 };
     this.dirty = false;
     this.playing = false;
     this.spaceDown = false;
@@ -147,7 +150,18 @@ export class App extends Emitter {
   /** A fresh element seeded with the current paint settings. */
   newElement(type) {
     const el = createElement(type);
-    const stroked = type === "line" || type === "arrow" || type === "path";
+    if (type === "path") {
+      // Freehand geometry is described by the brush, not by shape defaults.
+      el.fill = null;
+      el.stroke = this.paint.stroke;
+      el.strokeWidth = this.brush.size;
+      el.opacity = this.brush.opacity;
+      el.strokeCap = "round";
+      el.strokeJoin = "round";
+      el.smooth = true;
+      return el;
+    }
+    const stroked = type === "line" || type === "arrow";
     if (stroked) {
       el.fill = null;
       el.stroke = this.paint.stroke;
@@ -160,6 +174,39 @@ export class App extends Emitter {
       }
     }
     return el;
+  }
+
+  /* ------------------------------------------------------------ clipboard */
+
+  hasClipboard() {
+    return !!(this._clipboard && this._clipboard.length);
+  }
+
+  /* ------------------------------------------------------------ context menu */
+
+  onContextMenu(evt, pointer) {
+    const hit = this.tools?.hit(pointer) || null;
+    openCanvasMenu(this, evt, pointer, { hit });
+  }
+
+  /** Fill the whole artboard with a colour (or clear it back to transparent). */
+  setCanvasBackground(color) {
+    this.scene.setCanvas({ background: color }, "canvas-background");
+    this.markDirty();
+    this.requestRender();
+    this.dock?.refreshTab("export");
+    this.dock?.refreshTab("inspector");
+    toast(color ? t("doc.backgroundSet", { color }) : t("doc.fillNone"), { kind: "ok", timeout: 1800 });
+  }
+
+  /** One-click "fill the canvas with the current fill colour". */
+  fillCanvas() {
+    this.setCanvasBackground(this.canvasFillColor());
+  }
+
+  /** What "fill the canvas" uses when the paint fill is set to none. */
+  canvasFillColor() {
+    return this.paint.fill || "#12141a";
   }
 
   requestRender() {

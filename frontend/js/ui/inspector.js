@@ -24,6 +24,7 @@ import { icon } from "./icons.js";
 import { t } from "../i18n/index.js";
 import { ANIMATABLE, FONT_FAMILIES, measureText, FONT_STACK } from "../core/elements.js";
 import { keyAt, isAnimated } from "../core/anim.js";
+import { propColorOrNull } from "./palette.js";
 import { clamp } from "../core/util.js";
 
 export class Inspector {
@@ -63,6 +64,172 @@ export class Inspector {
     }
   }
 
+  /* ------------------------------------------------------------ document */
+
+  _buildDocument() {
+    const app = this.app;
+    const doc = this.doc;
+
+    this.el.appendChild(
+      h("div", { class: "empty" }, [
+        h("span", { html: icon("cursor", 22) }),
+        h("div", { text: t("insp.empty") }),
+        h("div", { text: t("insp.emptyHint") }),
+      ])
+    );
+
+    /* ---- canvas fill ---- */
+    const fillSec = section(t("doc.title"));
+    const bg = colorField({
+      value: doc.canvas.background,
+      label: t("doc.fill"),
+      onInput: (v) => app.setCanvasBackground(v),
+      onCommit: () => {},
+    });
+    fillSec.body.appendChild(row(t("doc.fill"), [bg.el]));
+    this.controls.canvasBg = bg;
+
+    const fillBtn = h("button", { class: "btn solid block", type: "button" }, [
+      h("span", { html: icon("palette", 14) }),
+      h("span", { text: t("doc.pickBackground") }),
+    ]);
+    attachTooltip(fillBtn, t("doc.pickBackground"), "Shift+B");
+    fillBtn.addEventListener("click", () => {
+      app.fillCanvas();
+      this.refresh();
+    });
+    const clearBtn = h("button", { class: "btn outline block", type: "button", text: t("doc.fillNone") });
+    clearBtn.addEventListener("click", () => {
+      app.setCanvasBackground(null);
+      this.refresh();
+    });
+    fillSec.body.append(h("div", { style: "height:8px" }), fillBtn, h("div", { style: "height:6px" }), clearBtn);
+    this.el.appendChild(fillSec.el);
+
+    /* ---- size ---- */
+    const sizeSec = section(t("doc.size"));
+    this.controls.canvasW = numberField({
+      value: doc.canvas.width,
+      min: 16,
+      max: 8192,
+      step: 1,
+      precision: 0,
+      onCommit: (v) => {
+        app.scene.setCanvas({ width: Math.round(v) }, "canvas-size");
+        app.requestRender();
+        app.markDirty();
+        app.stage.fit();
+      },
+    });
+    this.controls.canvasH = numberField({
+      value: doc.canvas.height,
+      min: 16,
+      max: 8192,
+      step: 1,
+      precision: 0,
+      onCommit: (v) => {
+        app.scene.setCanvas({ height: Math.round(v) }, "canvas-size");
+        app.requestRender();
+        app.markDirty();
+        app.stage.fit();
+      },
+    });
+    sizeSec.body.appendChild(
+      h("div", { class: "grid2" }, [
+        h("label", { class: "pair" }, [h("span", { text: t("exp.width") }), this.controls.canvasW.el]),
+        h("label", { class: "pair" }, [h("span", { text: t("exp.height") }), this.controls.canvasH.el]),
+      ])
+    );
+    this.controls.preset = selectField({
+      value: "",
+      options: [
+        { value: "", label: "—" },
+        { value: "1920x1080", label: "1920 × 1080" },
+        { value: "1280x720", label: "1280 × 720" },
+        { value: "1080x1080", label: "1080 × 1080" },
+        { value: "1080x1350", label: "1080 × 1350" },
+        { value: "800x600", label: "800 × 600" },
+        { value: "512x512", label: "512 × 512" },
+      ],
+      onChange: (v) => {
+        if (!v) return;
+        const [w, hh] = v.split("x").map(Number);
+        app.scene.setCanvas({ width: w, height: hh }, "canvas-size");
+        app.requestRender();
+        app.markDirty();
+        app.stage.fit();
+        this.refresh();
+      },
+    });
+    sizeSec.body.appendChild(row(t("doc.preset"), [this.controls.preset.el]));
+    this.el.appendChild(sizeSec.el);
+
+    /* ---- grid & snapping ---- */
+    const gridSec = section(t("doc.grid"));
+    this.controls.showGrid = toggle({
+      checked: !!doc.showGrid,
+      label: t("doc.showGrid"),
+      onChange: () => app.toggleGrid(),
+    });
+    this.controls.snap = toggle({
+      checked: !!doc.snap,
+      label: t("doc.snap"),
+      onChange: () => {
+        app.scene.mutate("snap", (d) => {
+          d.snap = !d.snap;
+        });
+        app.topbar?.syncToggles();
+      },
+    });
+    gridSec.body.appendChild(h("div", { class: "row" }, [this.controls.showGrid.el, this.controls.snap.el]));
+    this.controls.gridStep = numberField({
+      value: doc.grid,
+      min: 1,
+      max: 500,
+      step: 1,
+      precision: 0,
+      onCommit: (v) => {
+        app.scene.mutate("grid", (d) => {
+          d.grid = Math.max(1, Math.round(v));
+        });
+        app.requestRender();
+      },
+    });
+    gridSec.body.appendChild(row(t("doc.gridSize"), [this.controls.gridStep.el]));
+    this.el.appendChild(gridSec.el);
+
+    /* ---- timeline defaults ---- */
+    const timeSec = section(t("insp.animation"));
+    this.controls.fps = numberField({
+      value: doc.canvas.fps,
+      min: 1,
+      max: 120,
+      step: 1,
+      precision: 0,
+      onCommit: (v) => {
+        app.scene.setCanvas({ fps: Math.round(v) }, "canvas-fps");
+        app.timeline?.refresh();
+      },
+    });
+    this.controls.duration = numberField({
+      value: doc.canvas.duration,
+      min: 0.1,
+      max: 600,
+      step: 0.1,
+      onCommit: (v) => {
+        app.scene.setCanvas({ duration: Math.max(0.1, v) }, "canvas-duration");
+        app.timeline?.refresh();
+      },
+    });
+    timeSec.body.appendChild(
+      h("div", { class: "grid2" }, [
+        h("label", { class: "pair" }, [h("span", { text: t("doc.fps") }), this.controls.fps.el]),
+        h("label", { class: "pair" }, [h("span", { text: t("doc.duration") }), this.controls.duration.el]),
+      ])
+    );
+    this.el.appendChild(timeSec.el);
+  }
+
   /* ------------------------------------------------------------ build */
 
   build() {
@@ -71,13 +238,10 @@ export class Inspector {
     const sel = this.selected();
 
     if (!sel.length) {
-      this.el.appendChild(
-        h("div", { class: "empty" }, [
-          h("span", { html: icon("cursor", 26) }),
-          h("div", { text: t("insp.empty") }),
-          h("div", { text: t("insp.emptyHint") }),
-        ])
-      );
+      // Nothing selected is still a useful state: it is where the canvas itself
+      // is configured, including filling it with a colour.
+      this._buildDocument();
+      this.sync();
       return;
     }
 
@@ -452,7 +616,10 @@ export class Inspector {
       this.controls[`${prop}Key`] = kf;
     }
 
-    const wrap = row(label, ctl);
+    const wrap = row(label, ctl, {
+      accent: propColorOrNull(prop),
+      title: propColorOrNull(prop) ? t("insp.addKey") : "",
+    });
     this.controls[prop] = field;
     return { wrap, field, kf };
   }
@@ -465,7 +632,10 @@ export class Inspector {
 
   sync() {
     const sel = this.selected();
-    if (!sel.length) return;
+    if (!sel.length) {
+      this.syncDocument();
+      return;
+    }
     const el = sel.length === 1 ? sel[0] : null;
     const t0 = this.doc.time;
     const resolved = el ? this.app.stage.renderer.resolve(el, t0) : sel[0];
@@ -504,6 +674,20 @@ export class Inspector {
 
   focusText() {
     this.controls.text?.focus();
+  }
+
+  /** Keep the canvas panel in step with the document. */
+  syncDocument() {
+    const doc = this.doc;
+    const c = this.controls;
+    c.canvasBg?._sync(doc.canvas.background);
+    c.canvasW?._sync(doc.canvas.width);
+    c.canvasH?._sync(doc.canvas.height);
+    c.gridStep?._sync(doc.grid);
+    c.fps?._sync(doc.canvas.fps);
+    c.duration?._sync(doc.canvas.duration);
+    c.showGrid?._sync(!!doc.showGrid);
+    c.snap?._sync(!!doc.snap);
   }
 }
 

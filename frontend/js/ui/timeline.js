@@ -11,21 +11,11 @@ import { h, attachTooltip, menu, confirmDialog, toast } from "./shell.js";
 import { t } from "../i18n/index.js";
 import { ANIMATABLE } from "../core/elements.js";
 import { EASING_LABEL, EASINGS, keyAt, nextKeyTime, prevKeyTime } from "../core/anim.js";
+import { PROP_COLOR, elementColors } from "./palette.js";
 import { clamp, timecode } from "../core/util.js";
 
 const ROW_H = 26;
 const SUB_H = 22;
-const LABEL_PREFIX = "P";
-
-export const PROP_COLOR = {
-  x: "var(--c-x)",
-  y: "var(--c-y)",
-  rotation: "var(--c-rot)",
-  scaleX: "var(--c-scale)",
-  scaleY: "var(--c-scale)",
-  opacity: "var(--c-opacity)",
-  strokeWidth: "var(--c-ease)",
-};
 
 export class Timeline {
   constructor(app, root) {
@@ -296,7 +286,12 @@ export class Timeline {
         this.refresh();
       });
       const nm = h("span", { class: "nm truncate", text: el.name || el.type });
-      label.append(tw, eye, nm);
+      const colors = elementColors(el);
+      const chip = h("span", { class: "chip" });
+      chip.style.setProperty("--chip-fill", colors.fill);
+      chip.style.setProperty("--chip-stroke", colors.stroke);
+      if (el.type === "line" || el.type === "arrow" || !colors.hasFill) chip.classList.add("stroke-only");
+      label.append(tw, chip, eye, nm);
       label.addEventListener("click", () => {
         this.scene.select(el.id);
         this.app.onSelectionChanged();
@@ -315,6 +310,7 @@ export class Timeline {
       });
       row.addEventListener("contextmenu", (evt) => {
         evt.preventDefault();
+        evt.__svgenHandled = true;
         this.scene.select(el.id);
         this.app.onSelectionChanged();
         this._rowMenu(evt, el);
@@ -409,6 +405,7 @@ export class Timeline {
           node.addEventListener("pointerdown", (evt) => this._keyDrag(evt, el, prop, k.t));
           node.addEventListener("contextmenu", (evt) => {
             evt.preventDefault();
+            evt.__svgenHandled = true;
             evt.stopPropagation();
             this._keyMenu(evt, el, prop, k.t);
           });

@@ -143,6 +143,23 @@ presets, background colour or transparency, duration / fps / quality, engine
 choice, live capability readout, and **real progress with a cancel button**
 (video renders run as backend jobs).
 
+**Input capture** — the studio takes the mouse and keyboard back from the
+browser: the canvas, layers, timeline and text fields each have **their own
+right-click menu** (delete, copy, paste, reorder, align…), `Ctrl+P` / `Ctrl+F` /
+`Ctrl+S` / `F3` are intercepted, `Ctrl+wheel` belongs to the canvas, middle-drag
+pans, and dropping a file imports it instead of navigating away.
+
+**Brush & canvas** — the brush panel controls size, opacity, smoothing and a
+stabiliser, with a footprint ring under the cursor; the pen **stays active
+between strokes**; and the inspector's empty state is the canvas itself, with
+one-click fill (`Shift+B`) or back to transparent.
+
+**Colour as a language** — a property has the same colour in the inspector, on
+its timeline track and on its keyframes; layer rows and timeline rows carry the
+artwork's own colour; and the tool rail groups are colour-banded (select =
+neutral, draw = cyan, shapes = amber, paint = lime). Nothing has to be
+memorised.
+
 **Project files** — save/open `.svgen.json`, drag-and-drop import, browser
 autosave, SVG import.
 

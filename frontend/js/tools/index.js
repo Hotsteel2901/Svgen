@@ -550,7 +550,11 @@ export class ToolController {
     this.gesture = {
       kind: "freehand",
       el,
+      raw: [[p.sceneX, p.sceneY]],
       points: [[p.sceneX, p.sceneY]],
+      // The stabiliser drags a lagging anchor toward the pointer, which is what
+      // turns a shaky hand into a clean line.
+      anchor: [p.sceneX, p.sceneY],
     };
     this._freehandUpdateLive();
     this.app.requestRender();
@@ -558,13 +562,17 @@ export class ToolController {
 
   _freehandUpdate(p) {
     const g = this.gesture;
-    const pts = g.points;
-    const last = pts[pts.length - 1];
-    const d = Math.hypot(p.sceneX - last[0], p.sceneY - last[1]);
-    const minStep = 1.6 / Math.max(1, this.stage.view.zoom);
-    if (d < minStep) return;
-    // Keep some of the raw pressure/thinning signal by skipping jitter.
-    pts.push([p.sceneX, p.sceneY]);
+    const brush = this.app.brush;
+    const pull = 1 - clamp(brush.stabiliser || 0, 0, 0.95) * 0.92;
+    g.anchor[0] += (p.sceneX - g.anchor[0]) * pull;
+    g.anchor[1] += (p.sceneY - g.anchor[1]) * pull;
+
+    const last = g.raw[g.raw.length - 1];
+    const minStep = Math.max(0.6, 1.4 / Math.max(0.2, this.stage.view.zoom));
+    if (Math.hypot(g.anchor[0] - last[0], g.anchor[1] - last[1]) < minStep) return;
+
+    g.raw.push([g.anchor[0], g.anchor[1]]);
+    g.points = g.raw;
     this._freehandUpdateLive();
     this.app.requestRender();
   }
@@ -580,15 +588,26 @@ export class ToolController {
   _freehandCommit(g) {
     this.draft = null;
     const el = g.el;
-    if (el.points.length < 3 || (el.w < 2 && el.h < 2)) {
+    const brush = this.app.brush;
+
+    // Keep the visual smoothing that was already on screen while drawing.
+    const smoothed = smoothPoints(g.raw, brush.smoothing);
+    const simplified = simplifyPoints(smoothed, 0.35 + brush.smoothing * 1.8);
+    if (simplified.length < 2 || (el.w < 2 && el.h < 2)) {
       this.app.requestRender();
       return;
     }
+    el.points = simplified.map(([x, y]) => [x, y]);
+    refitPath(el);
+    el.smooth = true;
+    el.strokeWidth = brush.size;
+    el.opacity = brush.opacity;
     el.name = "";
     this.scene.add(el, { label: "draw" });
     this.app.onSelectionChanged();
     this.app.markDirty();
-    this.setTool("select");
+    this.app.requestRender();
+    // A brush is meant to be used stroke after stroke, so the tool stays put.
   }
 
   /* ------------------------------------------------------------ curve tool */
@@ -706,6 +725,77 @@ export class ToolController {
 }
 
 /* ---------------------------------------------------------------- maths */
+
+/**
+ * Moving-average relaxation. `amount` 0..1; each pass pulls interior points
+ * toward the midpoint of their neighbours.
+ */
+function smoothPoints(points, amount) {
+  if (!points || points.length < 3 || amount <= 0) return points || [];
+  const passes = Math.max(1, Math.round(amount * 3));
+  const strength = Math.min(0.6, amount * 0.55);
+  let pts = points.map((p) => [p[0], p[1]]);
+  for (let pass = 0; pass < passes; pass++) {
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length - 1; i++) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      const c = pts[i + 1];
+      out.push([
+        b[0] + ((a[0] + c[0]) / 2 - b[0]) * strength,
+        b[1] + ((a[1] + c[1]) / 2 - b[1]) * strength,
+      ]);
+    }
+    out.push(pts[pts.length - 1]);
+    pts = out;
+  }
+  return pts;
+}
+
+/**
+ * Ramer–Douglas–Peucker. Removes the samples a smooth stroke does not need,
+ * which keeps exported path data small without visibly changing the curve.
+ */
+function simplifyPoints(points, tolerance) {
+  if (!points || points.length < 3 || tolerance <= 0) return points || [];
+  const tol2 = tolerance * tolerance;
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+  const stack = [[0, points.length - 1]];
+
+  while (stack.length) {
+    const [first, last] = stack.pop();
+    if (last - first < 2) continue;
+    let maxDist = -1;
+    let index = -1;
+    const ax = points[first][0];
+    const ay = points[first][1];
+    const bx = points[last][0];
+    const by = points[last][1];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    for (let i = first + 1; i < last; i++) {
+      const px = points[i][0];
+      const py = points[i][1];
+      let t = len2 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const ex = ax + t * dx - px;
+      const ey = ay + t * dy - py;
+      const d2 = ex * ex + ey * ey;
+      if (d2 > maxDist) {
+        maxDist = d2;
+        index = i;
+      }
+    }
+    if (maxDist > tol2 && index > 0) {
+      keep[index] = 1;
+      stack.push([first, index], [index, last]);
+    }
+  }
+  return points.filter((_, i) => keep[i]);
+}
 
 function anchorFor(handle, bounds, alreadyCentred = false) {
   const left = bounds.x;

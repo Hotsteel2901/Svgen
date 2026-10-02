@@ -31,6 +31,22 @@ body {
   overscroll-behavior: none;
 }
 
+/* The studio owns the pointer: no accidental text selection while dragging
+   shapes, no iOS long-press callout, no rubber-band scroll. Fields opt back in
+   below so typing still works normally. */
+#app {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 body.is-resizing,
 body.is-dragging {
   cursor: var(--cursor, default);

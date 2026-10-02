@@ -250,6 +250,33 @@
   white-space: nowrap;
 }
 
+/* The artwork's own colour, matching the layers panel. */
+.tl-label .chip {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 2px;
+  background-image: linear-gradient(45deg, var(--line) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--line) 25%, transparent 25%);
+  background-size: 5px 5px;
+  position: relative;
+  box-shadow: inset 0 0 0 1.2px var(--chip-stroke, transparent);
+}
+
+.tl-label .chip::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--chip-fill, transparent);
+}
+
+.tl-label .chip.stroke-only::after {
+  inset: 2px;
+  border-radius: 1px;
+  background: var(--chip-stroke, transparent);
+}
+
 .tl-label .pdot {
   width: 7px;
   height: 7px;

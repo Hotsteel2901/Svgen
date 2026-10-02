@@ -174,9 +174,27 @@
 }
 
 .prop > .label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: var(--fs-xs);
   color: var(--text-mute);
   letter-spacing: 0.01em;
+  min-width: 0;
+}
+
+/* The property's colour, matching its timeline track and keyframes. */
+.prop > .label .pdot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 2px;
+  transform: rotate(45deg);
+  background: var(--accent-prop, var(--text-faint));
+}
+
+.prop > .label.accented {
+  color: var(--text-dim);
 }
 
 .prop .ctl {
